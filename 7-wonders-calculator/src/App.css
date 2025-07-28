@@ -464,13 +464,16 @@ h2 {
 
 .score-breakdown {
   max-width: 100%;
-  margin: 1rem auto;
+  margin: 1rem;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.85) 100%);
   border-radius: 15px;
   padding: 1rem;
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
   backdrop-filter: blur(10px);
   overflow-y: auto;
+  @media screen and (max-width: 600px) {
+    margin: 0;
+  }
 }
 
 .score-item {
