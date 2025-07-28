@@ -1,5 +1,9 @@
-import { useState, useEffect } from 'react'
-import './App.css'
+import { useState, useEffect, Component, memo } from 'react';
+import { Pie } from 'react-chartjs-2';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
+import './App.css';
+
+ChartJS.register(ArcElement, Tooltip, Legend);
 
 const CARDS = {
   civilian: [
@@ -138,6 +142,45 @@ const WONDERS = [
   }
 ];
 
+class ErrorBoundary extends Component {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <h3>Something went wrong. Please refresh and try again.</h3>;
+    }
+    return this.props.children;
+  }
+}
+
+const Card = memo(({ card, category, selected, toggleCard, getNeighborPrompt }) => (
+  <div 
+    className={`card ${selected ? 'selected' : ''}`}
+    onClick={() => toggleCard(card, category)}
+    role="button"
+    tabIndex={0}
+    onKeyDown={(e) => e.key === 'Enter' && toggleCard(card, category)}
+    aria-label={`Select ${card.name} card`}
+  >
+    <div className="card-icon">{card.icon}</div>
+    <div className="card-info">
+      <h4>{card.name}</h4>
+      <span 
+        className="points" 
+        title={card.points === 'neighbor' ? getNeighborPrompt(card.id).question : ''}
+      >
+        {card.points === 'neighbor' ? 'Neighbor' : 
+         card.points === 'science' ? card.symbol : 
+         `${card.points}pts`}
+      </span>
+    </div>
+  </div>
+));
+
 function App() {
   const [currentStep, setCurrentStep] = useState(0);
   const [gameData, setGameData] = useState({
@@ -147,9 +190,11 @@ function App() {
     wonderStages: [],
     civilianCards: [],
     commercialCards: [],
+    militaryCards: [],
     guildsCards: [],
     scienceCards: [],
     militaryScore: 0,
+    coins: 0,
     wonderScience: { compass: 0, gear: 0, tablet: 0 },
     neighborInteractions: {}
   });
@@ -174,7 +219,7 @@ function App() {
 
   const steps = [
     'Player Count',
-    'Wonder Selection', 
+    'Wonder Selection',
     'Wonder Stages',
     'Civilian Buildings (Blue)',
     'Science Buildings (Green)',
@@ -182,6 +227,7 @@ function App() {
         ((gameData.wonderSide === 'A' && gameData.wonderStages.length >= 2) ||
          (gameData.wonderSide === 'B' && gameData.wonderStages.length >= 2)) ? ['Wonder Science Bonus'] : []),
     'Military Score',
+    'Coins',
     'Commercial Buildings (Yellow)',
     'Guilds (Purple)',
     'Final Score'
@@ -214,13 +260,11 @@ function App() {
   const toggleWonderStage = (stage) => {
     setGameData(prev => {
       if (prev.wonderStages.includes(stage)) {
-        // If removing a stage, remove all higher stages too
         return {
           ...prev,
           wonderStages: prev.wonderStages.filter(s => s < stage)
         };
       } else {
-        // If adding a stage, add all lower stages too
         const allStages = [];
         for (let i = 1; i <= stage; i++) {
           allStages.push(i);
@@ -237,7 +281,6 @@ function App() {
     const categoryKey = `${category}Cards`;
     const isSelected = gameData[categoryKey].find(c => c.id === card.id);
     
-    // Check guild card limit
     if (category === 'guilds' && !isSelected && gameData.guildsCards.length >= gameData.playerCount) {
       alert(`You can only select ${gameData.playerCount} guild cards.`);
       return;
@@ -256,8 +299,9 @@ function App() {
   };
 
   const handleNeighborInteraction = (value) => {
-    const { multiplier } = getNeighborPrompt(showNeighborDialog.card.id);
-    const actualPoints = value * multiplier;
+    const { multiplier, max } = getNeighborPrompt(showNeighborDialog.card.id);
+    const actualValue = Math.min(parseInt(value) || 0, max || Infinity);
+    const actualPoints = actualValue * multiplier;
     
     setGameData(prev => ({
       ...prev,
@@ -273,7 +317,6 @@ function App() {
     const maxWonderStages = gameData.wonder?.id === 'gizah' && gameData.wonderSide === 'B' ? 4 : 3;
     
     const prompts = {
-      // Guilds
       'workers': { question: "How many brown resource cards do your neighbors have?", multiplier: 1 },
       'craftmens': { question: "How many gray manufactured good cards do your neighbors have?", multiplier: 2 },
       'traders': { question: "How many yellow commercial cards do your neighbors have?", multiplier: 1 },
@@ -284,8 +327,6 @@ function App() {
       'scientists': { question: "How many science symbols do your neighbors have?", multiplier: 1 },
       'magistrates': { question: "How many blue civilian cards do your neighbors have?", multiplier: 1 },
       'builders': { question: "How many wonder stages have your neighbors built?", multiplier: 1 },
-      
-      // Commercial buildings
       'easttrading': { question: "How many brown resource cards does your right neighbor have?", multiplier: 1 },
       'westtrading': { question: "How many brown resource cards does your left neighbor have?", multiplier: 1 },
       'marketplace': { question: "How many gray manufactured good cards do your neighbors have?", multiplier: 1 },
@@ -303,24 +344,6 @@ function App() {
     return prompts[cardId] || { question: "Enter points from neighbors:", multiplier: 1 };
   };
 
-  const renderWonderSelection = () => (
-    <div className="step-content">
-      <h2>Select Your Wonder</h2>
-      <div className="wonder-grid">
-        {WONDERS.map(wonder => (
-          <div 
-            key={wonder.id} 
-            className={`wonder-card ${gameData.wonder?.id === wonder.id ? 'selected' : ''}`}
-            onClick={() => selectWonder(wonder)}
-          >
-            <div className="wonder-icon">{wonder.icon}</div>
-            <h3>{wonder.name}</h3>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
   const renderPlayerCount = () => (
     <div className="step-content">
       <h2>Number of Players</h2>
@@ -332,6 +355,7 @@ function App() {
               key={count}
               className={`player-btn ${gameData.playerCount === count ? 'active' : ''}`}
               onClick={() => setGameData(prev => ({ ...prev, playerCount: count }))}
+              aria-label={`Select ${count} players`}
             >
               {count} Players
             </button>
@@ -345,28 +369,50 @@ function App() {
     </div>
   );
 
+  const renderWonderSelection = () => (
+    <div className="step-content">
+      <h2>Select Your Wonder</h2>
+      <div className="wonder-grid">
+        {WONDERS.map(wonder => (
+          <div 
+            key={wonder.id} 
+            className={`wonder-card ${gameData.wonder?.id === wonder.id ? 'selected' : ''}`}
+            onClick={() => selectWonder(wonder)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && selectWonder(wonder)}
+            aria-label={`Select ${wonder.name} wonder`}
+          >
+            <div className="wonder-icon">{wonder.icon}</div>
+            <h3>{wonder.name}</h3>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   const renderWonderStages = () => {
     const wonderStages = gameData.wonder?.stages[gameData.wonderSide] || [];
     
     return (
       <div className="step-content">
         <h2>Wonder Stages - {gameData.wonder?.name}</h2>
-        
         <div className="wonder-side-selector">
           <button 
             className={`side-btn ${gameData.wonderSide === 'A' ? 'active' : ''}`}
             onClick={toggleWonderSide}
+            aria-label="Select Side A (Day)"
           >
             Side A (Day)
           </button>
           <button 
             className={`side-btn ${gameData.wonderSide === 'B' ? 'active' : ''}`}
             onClick={toggleWonderSide}
+            aria-label="Select Side B (Night)"
           >
             Side B (Night)
           </button>
         </div>
-
         <div className="wonder-stages">
           <h3>Select Completed Stages:</h3>
           {wonderStages.map((stagePoints, index) => {
@@ -376,6 +422,10 @@ function App() {
                 key={stageNumber}
                 className={`stage-card ${gameData.wonderStages.includes(stageNumber) ? 'selected' : ''}`}
                 onClick={() => toggleWonderStage(stageNumber)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === 'Enter' && toggleWonderStage(stageNumber)}
+                aria-label={`Toggle Stage ${stageNumber}`}
               >
                 <div className="stage-header">Stage {stageNumber} ({gameData.wonderSide})</div>
                 <div className="stage-points">{stagePoints} VP</div>
@@ -390,25 +440,25 @@ function App() {
   const renderCardSelection = (category, cards, title) => (
     <div className="step-content">
       <h2>{title}</h2>
-      <div className="card-grid">
-        {cards.map(card => (
-          <div 
-            key={card.id}
-            className={`card ${gameData[`${category}Cards`]?.find(c => c.id === card.id) ? 'selected' : ''}`}
-            onClick={() => toggleCard(card, category)}
-          >
-            <div className="card-icon">{card.icon}</div>
-            <div className="card-info">
-              <h4>{card.name}</h4>
-              <span className="points">
-                {card.points === 'neighbor' ? 'Neighbor' : 
-                 card.points === 'science' ? card.symbol : 
-                 `${card.points}pts`}
-              </span>
-            </div>
+      {[1, 2, 3].map(age => (
+        <div key={age}>
+          <h3>Age {age}</h3>
+          <div className="card-grid">
+            {cards
+              .filter(card => !card.age || card.age === age)
+              .map(card => (
+                <Card 
+                  key={card.id} 
+                  card={card} 
+                  category={category} 
+                  selected={gameData[`${category}Cards`]?.find(c => c.id === card.id)} 
+                  toggleCard={toggleCard} 
+                  getNeighborPrompt={getNeighborPrompt}
+                />
+              ))}
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </div>
   );
 
@@ -419,13 +469,11 @@ function App() {
       return null;
     }
 
-    // Count current science symbols from cards
     const currentSymbols = { compass: 0, gear: 0, tablet: 0 };
     gameData.scienceCards.forEach(card => {
       currentSymbols[card.symbol]++;
     });
 
-    // Calculate score for each possible choice
     const choices = ['compass', 'gear', 'tablet'];
     let bestChoice = 'compass';
     let bestScore = 0;
@@ -463,19 +511,6 @@ function App() {
     }
 
     const { bestChoice, currentSymbols } = babylonData;
-    
-    // Auto-select the optimal choice only once
-    if (gameData.wonderScience.compass === 0 && gameData.wonderScience.gear === 0 && gameData.wonderScience.tablet === 0) {
-      setGameData(prev => ({
-        ...prev,
-        wonderScience: {
-          compass: bestChoice === 'compass' ? 1 : 0,
-          gear: bestChoice === 'gear' ? 1 : 0,
-          tablet: bestChoice === 'tablet' ? 1 : 0
-        }
-      }));
-    }
-
     const symbolEmoji = bestChoice === 'compass' ? '🧭' : bestChoice === 'gear' ? '⚙️' : '📜';
 
     return (
@@ -488,7 +523,6 @@ function App() {
             <span>⚙️ Gear: {currentSymbols.gear}</span>
             <span>📜 Tablet: {currentSymbols.tablet}</span>
           </div>
-          
           <div className="optimal-choice">
             <h3>Optimal Choice: {symbolEmoji} {bestChoice}</h3>
             <p>This maximizes your science score based on your current cards.</p>
@@ -512,8 +546,29 @@ function App() {
           }))}
           min="-6"
           max="18"
+          aria-label="Enter total military points"
         />
         <p>Enter your total military victory points (+1/+3/+5 per age win, -1 per loss)</p>
+      </div>
+    </div>
+  );
+
+  const renderCoins = () => (
+    <div className="step-content">
+      <h2>Coins</h2>
+      <div className="coins-input">
+        <label>Total Coins:</label>
+        <input 
+          type="number" 
+          value={gameData.coins}
+          onChange={(e) => setGameData(prev => ({ 
+            ...prev, 
+            coins: parseInt(e.target.value) || 0 
+          }))}
+          min="0"
+          aria-label="Enter total coins"
+        />
+        <p>Enter your total coins (1 VP per 3 coins). Ephesos (Side B) adds 4 coins per stage.</p>
       </div>
     </div>
   );
@@ -523,36 +578,28 @@ function App() {
       let total = 0;
       let breakdown = {};
       
-      // Civilian cards
       const civilianPoints = gameData.civilianCards.reduce((sum, card) => sum + (card.points || 0), 0);
       breakdown.civilian = civilianPoints;
       total += civilianPoints;
       
-      // Military conflict points
       breakdown.military = gameData.militaryScore;
       total += gameData.militaryScore;
       
-      // Wonder stages
       const wonderPoints = gameData.wonderStages.reduce((sum, stageNum) => {
         const stagePoints = gameData.wonder?.stages[gameData.wonderSide]?.[stageNum - 1];
         return sum + (stagePoints || 0);
       }, 0);
       
-      // Add bonus points for Gizah wonder stages
       let wonderBonus = 0;
       if (gameData.wonder?.id === 'gizah' && gameData.wonderStages.length > 0) {
         const maxStage = Math.max(...gameData.wonderStages);
         if (gameData.wonderSide === 'A' && maxStage >= 3) {
-          // Stage 3 A gives +2 VP per wonder stage built
           wonderBonus = gameData.wonderStages.length * 2;
         } else if (gameData.wonderSide === 'B') {
-          if (maxStage >= 3) {
-            // Stage 3 B gives +3 VP per wonder stage built
-            wonderBonus = gameData.wonderStages.length * 3;
-          }
           if (maxStage >= 4) {
-            // Stage 4 B gives +4 VP per wonder stage built (replaces stage 3 bonus)
             wonderBonus = gameData.wonderStages.length * 4;
+          } else if (maxStage >= 3) {
+            wonderBonus = gameData.wonderStages.length * 3;
           }
         }
       }
@@ -560,20 +607,14 @@ function App() {
       breakdown.wonder = wonderPoints + wonderBonus;
       total += wonderPoints + wonderBonus;
       
-      // Science points calculation
       const scienceSymbols = { compass: 0, gear: 0, tablet: 0 };
-      
-      // Count science cards
       gameData.scienceCards.forEach(card => {
         scienceSymbols[card.symbol]++;
       });
-      
-      // Add wonder science bonus
       scienceSymbols.compass += gameData.wonderScience.compass;
       scienceSymbols.gear += gameData.wonderScience.gear;
       scienceSymbols.tablet += gameData.wonderScience.tablet;
       
-      // Calculate science score: sum of squares + 7 * sets of 3
       const compassSquared = scienceSymbols.compass * scienceSymbols.compass;
       const gearSquared = scienceSymbols.gear * scienceSymbols.gear;
       const tabletSquared = scienceSymbols.tablet * scienceSymbols.tablet;
@@ -583,7 +624,6 @@ function App() {
       breakdown.science = sciencePoints;
       total += sciencePoints;
       
-      // Commercial points
       const commercialPoints = gameData.commercialCards.reduce((sum, card) => {
         if (card.points === 'neighbor') {
           return sum + (gameData.neighborInteractions[card.id] || 0);
@@ -593,17 +633,44 @@ function App() {
       breakdown.commercial = commercialPoints;
       total += commercialPoints;
       
-      // Guild points
       const guildPoints = gameData.guildsCards.reduce((sum, card) => {
         return sum + (gameData.neighborInteractions[card.id] || 0);
       }, 0);
       breakdown.guilds = guildPoints;
       total += guildPoints;
       
+      const coinPoints = Math.floor(gameData.coins / 3);
+      breakdown.coins = coinPoints;
+      total += coinPoints;
+      
       return { total, breakdown };
     };
 
     const { total, breakdown } = calculateScore();
+
+    const chartData = {
+      labels: ['Wonder', 'Civilian', 'Military', 'Science', 'Commercial', 'Guilds', 'Coins'],
+      datasets: [{
+        data: [
+          breakdown.wonder,
+          breakdown.civilian,
+          breakdown.military,
+          breakdown.science,
+          breakdown.commercial,
+          breakdown.guilds,
+          breakdown.coins
+        ],
+        backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF']
+      }]
+    };
+
+    const chartOptions = {
+      responsive: true,
+      plugins: {
+        legend: { position: 'top' },
+        title: { display: true, text: 'Score Breakdown' }
+      }
+    };
 
     return (
       <div className="step-content">
@@ -633,13 +700,55 @@ function App() {
             <span>Guilds:</span>
             <span>{breakdown.guilds} pts</span>
           </div>
+          <div className="score-item">
+            <span>Coins:</span>
+            <span>{breakdown.coins} pts</span>
+          </div>
           <div className="score-total">
             <span>Total Score:</span>
             <span>{total} pts</span>
           </div>
         </div>
+        {/* <div className="score-chart">
+          <Pie data={chartData} options={chartOptions} />
+        </div> */}
       </div>
     );
+  };
+
+  const saveGame = () => {
+    localStorage.setItem('7wonders_game', JSON.stringify(gameData));
+    alert('Game saved!');
+  };
+
+  const loadGame = () => {
+    const saved = localStorage.getItem('7wonders_game');
+    if (saved) {
+      setGameData(JSON.parse(saved));
+      alert('Game loaded!');
+    } else {
+      alert('No saved game found.');
+    }
+  };
+
+  const resetGame = () => {
+    setGameData({
+      playerCount: 3,
+      wonder: null,
+      wonderSide: 'A',
+      wonderStages: [],
+      civilianCards: [],
+      commercialCards: [],
+      militaryCards: [],
+      guildsCards: [],
+      scienceCards: [],
+      militaryScore: 0,
+      coins: 0,
+      wonderScience: { compass: 0, gear: 0, tablet: 0 },
+      neighborInteractions: {}
+    });
+    setCurrentStep(0);
+    alert('Game reset!');
   };
 
   const renderCurrentStep = () => {
@@ -653,6 +762,7 @@ function App() {
       case 'Science Buildings (Green)': return renderCardSelection('science', CARDS.science, 'Science Buildings (Green)');
       case 'Wonder Science Bonus': return renderWonderScience();
       case 'Military Score': return renderMilitaryScore();
+      case 'Coins': return renderCoins();
       case 'Commercial Buildings (Yellow)': return renderCardSelection('commercial', CARDS.commercial, 'Commercial Buildings (Yellow)');
       case 'Guilds (Purple)': return renderCardSelection('guilds', CARDS.guilds, 'Guilds (Purple)');
       case 'Final Score': return renderFinalScore();
@@ -661,74 +771,88 @@ function App() {
   };
 
   return (
-    <div className="app">
-      <h1>7 Wonders Calculator</h1>
-      
-      <div className="progress">
-        <div className="steps">
-          {steps.map((step, index) => (
-            <div 
-              key={index} 
-              className={`step ${index === currentStep ? 'active' : ''} ${index < currentStep ? 'completed' : ''}`}
-              onClick={() => setCurrentStep(index)}
-              style={{ cursor: 'pointer' }}
-            >
-              {step}
-            </div>
-          ))}
+    <ErrorBoundary>
+      <div className="app">
+        <h1>7 Wonders Calculator</h1>
+        <div className="game-controls">
+          <button onClick={saveGame} className="nav-btn" aria-label="Save game">Save Game</button>
+          <button onClick={loadGame} className="nav-btn" aria-label="Load game">Load Game</button>
+          <button onClick={resetGame} className="nav-btn" aria-label="Reset game">Reset Game</button>
         </div>
-      </div>
-
-      {renderCurrentStep()}
-
-      <div className="navigation">
-        <button 
-          onClick={prevStep} 
-          disabled={currentStep === 0}
-          className="nav-btn"
-        >
-          Previous
-        </button>
-        <span className="step-counter">{currentStep + 1} of {steps.length}</span>
-        <button 
-          onClick={nextStep} 
-          disabled={currentStep === steps.length - 1 || (steps[currentStep] === 'Wonder Selection' && !gameData.wonder)}
-          className="nav-btn"
-        >
-          Next
-        </button>
-      </div>
-
-      {showNeighborDialog && (
-        <div className="modal-overlay">
-          <div className="neighbor-dialog">
-            <h3>{showNeighborDialog.card.name}</h3>
-            <p>{getNeighborPrompt(showNeighborDialog.card.id).question}</p>
-            <input 
-              type="number" 
-              min="0" 
-              max={getNeighborPrompt(showNeighborDialog.card.id).max || undefined}
-              placeholder="Count"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  handleNeighborInteraction(parseInt(e.target.value) || 0);
-                }
-              }}
-            />
-            <div className="dialog-buttons">
-              <button onClick={() => handleNeighborInteraction(0)}>Cancel</button>
-              <button onClick={() => {
-                const input = document.querySelector('.neighbor-dialog input');
-                handleNeighborInteraction(parseInt(input.value) || 0);
-              }}>
-                Confirm
-              </button>
-            </div>
+        
+        <div className="progress">
+          <div className="steps">
+            {steps.map((step, index) => (
+              <div 
+                key={index} 
+                className={`step ${index === currentStep ? 'active' : ''} ${index < currentStep ? 'completed' : ''}`}
+                onClick={() => index <= currentStep ? setCurrentStep(index) : null}
+                style={{ cursor: index <= currentStep ? 'pointer' : 'not-allowed' }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === 'Enter' && index <= currentStep && setCurrentStep(index)}
+                aria-label={`Go to ${step}`}
+              >
+                {step}
+              </div>
+            ))}
           </div>
         </div>
-      )}
-    </div>
+
+        {renderCurrentStep()}
+
+        <div className="navigation">
+          <button 
+            onClick={prevStep} 
+            disabled={currentStep === 0}
+            className="nav-btn"
+            aria-label="Go to previous step"
+          >
+            Previous
+          </button>
+          <span className="step-counter">{currentStep + 1} of {steps.length}</span>
+          <button 
+            onClick={nextStep} 
+            disabled={currentStep === steps.length - 1 || (steps[currentStep] === 'Wonder Selection' && !gameData.wonder)}
+            className="nav-btn"
+            aria-label="Go to next step"
+          >
+            Next
+          </button>
+        </div>
+
+        {showNeighborDialog && (
+          <div className="modal-overlay">
+            <div className="neighbor-dialog">
+              <h3>{showNeighborDialog.card.name}</h3>
+              <p>{getNeighborPrompt(showNeighborDialog.card.id).question}</p>
+              <input 
+                type="number" 
+                min="0" 
+                max={getNeighborPrompt(showNeighborDialog.card.id).max || undefined}
+                placeholder="Count"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleNeighborInteraction(e.target.value);
+                  }
+                }}
+                aria-label="Enter neighbor interaction count"
+              />
+              <div className="dialog-buttons">
+                <button onClick={() => handleNeighborInteraction(0)} aria-label="Cancel neighbor input">Cancel</button>
+                <button onClick={() => {
+                  const input = document.querySelector('.neighbor-dialog input');
+                  handleNeighborInteraction(input.value);
+                }} aria-label="Confirm neighbor input">
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </ErrorBoundary>
   );
 }
 
-export default App
+export default App;
