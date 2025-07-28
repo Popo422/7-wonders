@@ -354,9 +354,10 @@ h2 {
 
 .side-btn {
   padding: 0.75rem 1.5rem;
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  border: 2px solid #667eea;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.95);
+  color: #2c3e50;
   cursor: pointer;
   font-size: clamp(0.8rem, 2.5vw, 1rem);
   font-weight: 600;
