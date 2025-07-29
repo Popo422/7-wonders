@@ -546,19 +546,45 @@ function App() {
       <h2>Military Score</h2>
       <div className="military-input">
         <label>Total Military Points:</label>
-        <input
-          type="number"
-          value={gameData.militaryScore}
-          onChange={(e) =>
-            setGameData((prev) => ({
-              ...prev,
-              militaryScore: parseInt(e.target.value) || 0,
-            }))
-          }
-          min="-6"
-          max="18"
-          aria-label="Enter total military points"
-        />
+        <div className="input-with-buttons">
+          <button
+            className="increment-btn"
+            onClick={() =>
+              setGameData((prev) => ({
+                ...prev,
+                militaryScore: Math.max(-6, prev.militaryScore - 1),
+              }))
+            }
+            aria-label="Decrease military score"
+          >
+            ↓
+          </button>
+          <input
+            type="number"
+            value={gameData.militaryScore}
+            onChange={(e) =>
+              setGameData((prev) => ({
+                ...prev,
+                militaryScore: parseInt(e.target.value) || 0,
+              }))
+            }
+            min="-6"
+            max="18"
+            aria-label="Enter total military points"
+          />
+          <button
+            className="increment-btn"
+            onClick={() =>
+              setGameData((prev) => ({
+                ...prev,
+                militaryScore: Math.min(18, prev.militaryScore + 1),
+              }))
+            }
+            aria-label="Increase military score"
+          >
+            ↑
+          </button>
+        </div>
         <p>Enter your total military victory points (+1/+3/+5 per age win, -1 per loss)</p>
       </div>
     </div>
@@ -569,18 +595,44 @@ function App() {
       <h2>Coins</h2>
       <div className="military-input">
         <label>Total Coins:</label>
-        <input
-          type="number"
-          value={gameData.coins}
-          onChange={(e) =>
-            setGameData((prev) => ({
-              ...prev,
-              coins: parseInt(e.target.value) || 0,
-            }))
-          }
-          min="0"
-          aria-label="Enter total coins"
-        />
+        <div className="input-with-buttons">
+          <button
+            className="increment-btn"
+            onClick={() =>
+              setGameData((prev) => ({
+                ...prev,
+                coins: Math.max(0, prev.coins - 1),
+              }))
+            }
+            aria-label="Decrease coins"
+          >
+            ↓
+          </button>
+          <input
+            type="number"
+            value={gameData.coins}
+            onChange={(e) =>
+              setGameData((prev) => ({
+                ...prev,
+                coins: parseInt(e.target.value) || 0,
+              }))
+            }
+            min="0"
+            aria-label="Enter total coins"
+          />
+          <button
+            className="increment-btn"
+            onClick={() =>
+              setGameData((prev) => ({
+                ...prev,
+                coins: prev.coins + 1,
+              }))
+            }
+            aria-label="Increase coins"
+          >
+            ↑
+          </button>
+        </div>
         <p>Enter your total coins (1 VP per 3 coins). Ephesos (Side B) adds 4 coins per stage.</p>
       </div>
     </div>
