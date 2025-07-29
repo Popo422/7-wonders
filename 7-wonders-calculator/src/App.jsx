@@ -443,13 +443,15 @@ function App() {
   const renderCardSelection = (category, cards, title) => (
     <div className="step-content">
       <h2>{title}</h2>
-      {[1, 2, 3].map((age) => (
-        <div key={age}>
-          <h3>Age {age}</h3>
-          <div className="card-grid">
-            {cards
-              .filter((card) => !card.age || card.age === age)
-              .map((card) => (
+      {[1, 2, 3].map((age) => {
+        const filteredCards = cards.filter((card) => !card.age || card.age === age);
+        if (filteredCards.length === 0) return null;
+        
+        return (
+          <div key={age}>
+            <h3>Age {age}</h3>
+            <div className="card-grid">
+              {filteredCards.map((card) => (
                 <Card
                   key={card.id}
                   card={card}
@@ -459,9 +461,29 @@ function App() {
                   getNeighborPrompt={getNeighborPrompt}
                 />
               ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
+    </div>
+  );
+
+  const renderGuilds = () => (
+    <div className="step-content">
+      <h2>Guilds (Purple)</h2>
+      <p>Select up to {gameData.playerCount} guild cards (only {gameData.playerCount} are used in the game)</p>
+      <div className="card-grid">
+        {CARDS.guilds.map((card) => (
+          <Card
+            key={card.id}
+            card={card}
+            category="guilds"
+            selected={gameData.guildsCards?.find((c) => c.id === card.id)}
+            toggleCard={toggleCard}
+            getNeighborPrompt={getNeighborPrompt}
+          />
+        ))}
+      </div>
     </div>
   );
 
@@ -841,7 +863,7 @@ function App() {
       case "Commercial Buildings (Yellow)":
         return renderCardSelection("commercial", CARDS.commercial, "Commercial Buildings (Yellow)");
       case "Guilds (Purple)":
-        return renderCardSelection("guilds", CARDS.guilds, "Guilds (Purple)");
+        return renderGuilds();
       case "Final Score":
         return renderFinalScore();
       default:
