@@ -1,15 +1,25 @@
-import { useState, useEffect, Component, memo } from "react";
+import { useState, useEffect, useMemo, useCallback, Component, memo } from "react";
 import { Pie } from "react-chartjs-2";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import "./App.css";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
+/*
+ * Card / wonder data verified against the official 7 Wonders rulebook
+ * (Repos Production 2010, Antoine Bauza). Only effects that influence the
+ * final score are modeled: victory points, coins, military shields and
+ * science symbols. Production / build-cost effects are intentionally omitted
+ * because this is a score calculator, not a play aid.
+ */
+
 const CARDS = {
+  // Blue — score victory points directly.
   civilian: [
     { id: "altar", name: "Altar", icon: "⛪", points: 2, age: 1 },
     { id: "theater", name: "Theater", icon: "🎭", points: 2, age: 1 },
     { id: "baths", name: "Baths", icon: "🛁", points: 3, age: 1 },
+    { id: "pawnshop", name: "Pawnshop", icon: "🏦", points: 3, age: 1 },
     { id: "courthouse", name: "Courthouse", icon: "⚖️", points: 4, age: 2 },
     { id: "statue", name: "Statue", icon: "🗿", points: 4, age: 2 },
     { id: "temple", name: "Temple", icon: "🏛️", points: 3, age: 2 },
@@ -20,331 +30,496 @@ const CARDS = {
     { id: "pantheon", name: "Pantheon", icon: "🏛️", points: 7, age: 3 },
     { id: "palace", name: "Palace", icon: "🏰", points: 8, age: 3 },
   ],
+  // Yellow — most are coin/production effects; only a few Age III cards score
+  // end-game VP. `points` (flat VP) or `coinsPer`/`vpPer` neighbor-style entries.
   commercial: [
-    { id: "tavern", name: "Tavern", icon: "🍺", points: 5, age: 1 },
-    { id: "easttrading", name: "East Trading Post", icon: "🏪", points: "neighbor", age: 1 },
-    { id: "westtrading", name: "West Trading Post", icon: "🏪", points: "neighbor", age: 1 },
-    { id: "marketplace", name: "Marketplace", icon: "🏪", points: "neighbor", age: 1 },
-    { id: "caravansery", name: "Caravansery", icon: "🐪", points: "neighbor", age: 2 },
-    { id: "forum", name: "Forum", icon: "🏛️", points: "neighbor", age: 2 },
-    { id: "vineyard", name: "Vineyard", icon: "🍇", points: "neighbor", age: 2 },
-    { id: "bazaar", name: "Bazaar", icon: "🏪", points: "neighbor", age: 2 },
-    { id: "haven", name: "Haven", icon: "⚓", points: "neighbor", age: 3 },
-    { id: "lighthouse", name: "Lighthouse", icon: "🗼", points: "neighbor", age: 3 },
-    { id: "chamber", name: "Chamber of Commerce", icon: "💰", points: "neighbor", age: 3 },
-    { id: "arena", name: "Arena", icon: "🏟️", points: "neighbor", age: 3 },
-    { id: "ludus", name: "Ludus Magnus", icon: "🏟️", points: "neighbor", age: 3 },
+    { id: "tavern", name: "Tavern", icon: "🍺", points: 0, age: 1 },
+    { id: "easttrading", name: "East Trading Post", icon: "🏪", points: 0, age: 1 },
+    { id: "westtrading", name: "West Trading Post", icon: "🏪", points: 0, age: 1 },
+    { id: "marketplace", name: "Marketplace", icon: "🏪", points: 0, age: 1 },
+    { id: "caravansery", name: "Caravansery", icon: "🐪", points: 0, age: 2 },
+    { id: "forum", name: "Forum", icon: "🏟️", points: 0, age: 2 },
+    { id: "vineyard", name: "Vineyard", icon: "🍇", points: 0, age: 2 },
+    { id: "bazaar", name: "Bazaar", icon: "🏺", points: 0, age: 2 },
+    { id: "haven", name: "Haven", icon: "⚓", points: "scaling", age: 3 },
+    { id: "lighthouse", name: "Lighthouse", icon: "🗼", points: "scaling", age: 3 },
+    { id: "chamber", name: "Chamber of Commerce", icon: "💰", points: "scaling", age: 3 },
+    { id: "arena", name: "Arena", icon: "🏟️", points: "scaling", age: 3 },
   ],
+  // Red — shields. Tracked only through the military conflict score input,
+  // so these are informational (not individually selectable for scoring).
   military: [
-    { id: "barracks", name: "Barracks", icon: "🏠", points: 1, age: 1 },
-    { id: "guard_tower", name: "Guard Tower", icon: "🗼", points: 1, age: 1 },
-    { id: "stockade", name: "Stockade", icon: "🛡️", points: 1, age: 1 },
-    { id: "walls", name: "Walls", icon: "🧱", points: 2, age: 2 },
-    { id: "training_ground", name: "Training Ground", icon: "⚔️", points: 2, age: 2 },
-    { id: "stables", name: "Stables", icon: "🐎", points: 2, age: 2 },
-    { id: "archery_range", name: "Archery Range", icon: "🏹", points: 2, age: 2 },
-    { id: "fortifications", name: "Fortifications", icon: "🏰", points: 3, age: 3 },
-    { id: "circus", name: "Circus", icon: "🎪", points: 3, age: 3 },
-    { id: "arsenal", name: "Arsenal", icon: "⚔️", points: 3, age: 3 },
-    { id: "siege_workshop", name: "Siege Workshop", icon: "🏗️", points: 3, age: 3 },
+    { id: "stockade", name: "Stockade", icon: "🛡️", shields: 1, age: 1 },
+    { id: "barracks", name: "Barracks", icon: "🏠", shields: 1, age: 1 },
+    { id: "guard_tower", name: "Guard Tower", icon: "🗼", shields: 1, age: 1 },
+    { id: "walls", name: "Walls", icon: "🧱", shields: 2, age: 2 },
+    { id: "training_ground", name: "Training Ground", icon: "⚔️", shields: 2, age: 2 },
+    { id: "stables", name: "Stables", icon: "🐎", shields: 2, age: 2 },
+    { id: "archery_range", name: "Archery Range", icon: "🏹", shields: 2, age: 2 },
+    { id: "fortifications", name: "Fortifications", icon: "🏰", shields: 3, age: 3 },
+    { id: "circus", name: "Circus", icon: "🎪", shields: 3, age: 3 },
+    { id: "arsenal", name: "Arsenal", icon: "⚔️", shields: 3, age: 3 },
+    { id: "siege_workshop", name: "Siege Workshop", icon: "🏗️", shields: 3, age: 3 },
   ],
+  // Purple — scored by counting cards in your own and/or neighboring cities.
   guilds: [
-    { id: "workers", name: "Workers Guild", icon: "🔨", points: "neighbor" },
-    { id: "craftmens", name: "Craftmens Guild", icon: "⚒️", points: "neighbor" },
-    { id: "traders", name: "Traders Guild", icon: "💰", points: "neighbor" },
-    { id: "philosophers", name: "Philosophers Guild", icon: "📚", points: "neighbor" },
-    { id: "spies", name: "Spies Guild", icon: "🕵️", points: "neighbor" },
-    { id: "strategists", name: "Strategists Guild", icon: "⚔️", points: "neighbor" },
-    { id: "shipowners", name: "Shipowners Guild", icon: "⛵", points: "neighbor" },
-    { id: "scientists", name: "Scientists Guild", icon: "🧪", points: "neighbor" },
-    { id: "magistrates", name: "Magistrates Guild", icon: "⚖️", points: "neighbor" },
-    { id: "builders", name: "Builders Guild", icon: "🏗️", points: "neighbor" },
+    { id: "workers", name: "Workers Guild", icon: "🔨", points: "scaling" },
+    { id: "craftmens", name: "Craftsmens Guild", icon: "⚒️", points: "scaling" },
+    { id: "traders", name: "Traders Guild", icon: "💰", points: "scaling" },
+    { id: "philosophers", name: "Philosophers Guild", icon: "📚", points: "scaling" },
+    { id: "spies", name: "Spies Guild", icon: "🕵️", points: "scaling" },
+    { id: "strategists", name: "Strategists Guild", icon: "⚔️", points: "scaling" },
+    { id: "shipowners", name: "Shipowners Guild", icon: "⛵", points: "scaling" },
+    { id: "scientists", name: "Scientists Guild", icon: "🧪", points: "science" },
+    { id: "magistrates", name: "Magistrates Guild", icon: "⚖️", points: "scaling" },
+    { id: "builders", name: "Builders Guild", icon: "🏗️", points: "scaling" },
   ],
+  // Green — science symbols (compass / gear / tablet).
   science: [
-    { id: "apothecary", name: "Apothecary", icon: "🧪", symbol: "compass", points: "science", age: 1 },
-    { id: "workshop", name: "Workshop", icon: "⚙️", symbol: "gear", points: "science", age: 1 },
-    { id: "scriptorium", name: "Scriptorium", icon: "📜", symbol: "tablet", points: "science", age: 1 },
-    { id: "dispensary", name: "Dispensary", icon: "🧪", symbol: "compass", points: "science", age: 2 },
-    { id: "laboratory", name: "Laboratory", icon: "⚗️", symbol: "gear", points: "science", age: 2 },
-    { id: "library", name: "Library", icon: "📚", symbol: "tablet", points: "science", age: 2 },
-    { id: "school", name: "School", icon: "🏫", symbol: "tablet", points: "science", age: 2 },
-    { id: "lodge", name: "Lodge", icon: "🧭", symbol: "compass", points: "science", age: 3 },
-    { id: "observatory", name: "Observatory", icon: "🔭", symbol: "gear", points: "science", age: 3 },
-    { id: "university", name: "University", icon: "🎓", symbol: "tablet", points: "science", age: 3 },
-    { id: "academy", name: "Academy", icon: "🏫", symbol: "compass", points: "science", age: 3 },
-    { id: "study", name: "Study", icon: "📖", symbol: "gear", points: "science", age: 3 },
+    { id: "apothecary", name: "Apothecary", icon: "🧪", symbol: "compass", age: 1 },
+    { id: "workshop", name: "Workshop", icon: "⚙️", symbol: "gear", age: 1 },
+    { id: "scriptorium", name: "Scriptorium", icon: "📜", symbol: "tablet", age: 1 },
+    { id: "dispensary", name: "Dispensary", icon: "🧪", symbol: "compass", age: 2 },
+    { id: "laboratory", name: "Laboratory", icon: "⚗️", symbol: "gear", age: 2 },
+    { id: "library", name: "Library", icon: "📚", symbol: "tablet", age: 2 },
+    { id: "school", name: "School", icon: "🏫", symbol: "tablet", age: 2 },
+    { id: "lodge", name: "Lodge", icon: "🧭", symbol: "compass", age: 3 },
+    { id: "observatory", name: "Observatory", icon: "🔭", symbol: "gear", age: 3 },
+    { id: "university", name: "University", icon: "🎓", symbol: "tablet", age: 3 },
+    { id: "academy", name: "Academy", icon: "🏫", symbol: "compass", age: 3 },
+    { id: "study", name: "Study", icon: "📖", symbol: "gear", age: 3 },
   ],
 };
 
+const ART_BASE = "https://static.wikia.nocookie.net/7-wonders/images";
+
+/*
+ * Wonders modeled per stage. Each stage object may carry:
+ *   vp      victory points
+ *   coins   coins gained when built (scored at 1 VP / 3 coins)
+ *   shields military shields (informational — folded into conflict input)
+ *   science a science symbol of choice (compass/gear/tablet, player picks)
+ *   note    short human description of any non-scoring effect
+ * Values verified against the official rulebook (pp. 8–9).
+ */
 const WONDERS = [
   {
     id: "colossus",
-    name: "Rhódos (Colossus)",
+    name: "Rhódos",
+    sub: "The Colossus of Rhodes",
     icon: "🗿",
+    art: { A: `${ART_BASE}/9/95/Rhodos_day.png`, B: `${ART_BASE}/1/1f/Rhodos_night.png` },
     stages: {
-      A: [3, 0, 7], // Stage 2 gives military strength only
-      B: [3, 4], // Only 2 stages on B side
+      A: [{ vp: 3 }, { shields: 2, note: "+2 shields" }, { vp: 7 }],
+      B: [
+        { vp: 3, coins: 3, shields: 1, note: "+1 shield, +3 coins" },
+        { vp: 4, coins: 4, shields: 1, note: "+1 shield, +4 coins" },
+      ],
     },
   },
   {
     id: "alexandria",
-    name: "Alexandria (Lighthouse)",
+    name: "Alexandria",
+    sub: "The Lighthouse of Alexandria",
     icon: "🗼",
+    art: { A: `${ART_BASE}/1/1d/Alexandria_day.png`, B: `${ART_BASE}/6/68/Alexandria_night.png` },
     stages: {
-      A: [3, 0, 7], // Stage 2 gives resources only
-      B: [0, 0, 7], // Stages 1&2 give resources only
+      A: [{ vp: 3 }, { note: "Free raw material each turn" }, { vp: 7 }],
+      B: [
+        { note: "Free raw material each turn" },
+        { note: "Free manufactured good each turn" },
+        { vp: 7 },
+      ],
     },
   },
   {
     id: "ephesos",
-    name: "Éphesos (Temple of Artemis)",
+    name: "Éphesos",
+    sub: "The Temple of Artemis",
     icon: "🏛️",
+    art: { A: `${ART_BASE}/9/93/Ephesos_day.png`, B: `${ART_BASE}/7/7e/Ephesos_night.png` },
     stages: {
-      A: [3, 0, 7], // Stage 2 gives coins only
-      B: [2, 3, 5], // All stages give points + coins
+      A: [{ vp: 3 }, { coins: 9, note: "+9 coins" }, { vp: 7 }],
+      B: [
+        { vp: 2, coins: 4, note: "+4 coins" },
+        { vp: 3, coins: 4, note: "+4 coins" },
+        { vp: 5, coins: 4, note: "+4 coins" },
+      ],
     },
   },
   {
     id: "babylon",
-    name: "Babylon (Hanging Gardens)",
-    icon: "🏛️",
+    name: "Babylon",
+    sub: "The Hanging Gardens",
+    icon: "🌳",
+    art: { A: `${ART_BASE}/c/cd/Babylon_day.png`, B: `${ART_BASE}/9/96/Babylon_night.png` },
     stages: {
-      A: [3, 0, 7], // Stage 2 gives science symbol only
-      B: [0, 0], // Stages give special abilities only
+      A: [{ vp: 3 }, { science: true, note: "+1 science symbol of choice" }, { vp: 7 }],
+      B: [
+        { vp: 3 },
+        { note: "Play your 7th card each Age" },
+        { science: true, note: "+1 science symbol of choice" },
+      ],
     },
   },
   {
     id: "olympia",
-    name: "Olympía (Statue of Zeus)",
-    icon: "🏛️",
+    name: "Olympía",
+    sub: "The Statue of Zeus",
+    icon: "🏟️",
+    art: { A: `${ART_BASE}/d/dd/Olympia_day.png`, B: `${ART_BASE}/b/b8/Olympia_night.png` },
     stages: {
-      A: [3, 0, 7], // Stage 2 gives free building ability only
-      B: [2, 3, 5], // All stages give points + abilities
+      A: [{ vp: 3 }, { note: "Build 1 free structure per Age" }, { vp: 7 }],
+      B: [
+        { note: "Buy raw materials for 1 coin" },
+        { vp: 5 },
+        { guild: true, note: "Copy a neighbor's Guild" },
+      ],
     },
   },
   {
     id: "halikarnassos",
-    name: "Halikarnassos (Mausoleum)",
+    name: "Halikarnassós",
+    sub: "The Mausoleum",
     icon: "⚱️",
+    art: { A: `${ART_BASE}/6/65/Halikarnassos_day.png`, B: `${ART_BASE}/c/cc/Halikarnassos_night.png` },
     stages: {
-      A: [3, 0, 7], // Stage 2 gives discard ability only
-      B: [2, 1, 0], // Stage 3 gives discard ability only
+      A: [{ vp: 3 }, { note: "Build a discarded card free" }, { vp: 7 }],
+      B: [
+        { vp: 2, note: "Build a discarded card free" },
+        { vp: 1, note: "Build a discarded card free" },
+        { note: "Build a discarded card free" },
+      ],
     },
   },
   {
     id: "gizah",
-    name: "Gizah (Great Pyramid)",
+    name: "Gizah",
+    sub: "The Great Pyramid",
     icon: "🔺",
+    art: { A: `${ART_BASE}/7/76/Gizah_day.png`, B: `${ART_BASE}/7/76/Gizah_day.png` },
     stages: {
-      A: [3, 5, 7],
-      B: [3, 5, 5, 7], // 4 stages on B side
+      A: [{ vp: 3 }, { vp: 5 }, { vp: 7 }],
+      B: [{ vp: 3 }, { vp: 5 }, { vp: 5 }, { vp: 7 }],
     },
   },
 ];
 
+const SCIENCE_EMOJI = { compass: "🧭", gear: "⚙️", tablet: "📜" };
+
+const scaledArt = (url) => `${url.replace("/revision/latest", "")}/revision/latest/scale-to-width-down/500`;
+
 class ErrorBoundary extends Component {
   state = { hasError: false };
-
   static getDerivedStateFromError() {
     return { hasError: true };
   }
-
   render() {
     if (this.state.hasError) {
-      return <h3>Something went wrong. Please refresh and try again.</h3>;
+      return <h3 style={{ color: "white", textAlign: "center" }}>Something went wrong. Please refresh and try again.</h3>;
     }
     return this.props.children;
   }
 }
 
-const Card = memo(({ card, category, selected, toggleCard, getNeighborPrompt }) => (
+const Card = memo(({ card, category, selected, toggleCard, hint }) => (
   <div
     className={`card ${selected ? "selected" : ""}`}
     onClick={() => toggleCard(card, category)}
     role="button"
     tabIndex={0}
-    onKeyDown={(e) => e.key === "Enter" && toggleCard(card, category)}
-    aria-label={`Select ${card.name} card`}
+    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), toggleCard(card, category))}
+    aria-pressed={!!selected}
+    aria-label={`${card.name}${selected ? ", selected" : ""}`}
   >
     <div className="card-icon">{card.icon}</div>
     <div className="card-info">
       <h4>{card.name}</h4>
-      <span className="points" title={card.points === "neighbor" ? getNeighborPrompt(card.id).question : ""}>
-        {card.points === "neighbor" ? "Neighbor" : card.points === "science" ? card.symbol : `${card.points}pts`}
+      <span className="points" title={hint || ""}>
+        {card.points === "scaling"
+          ? "scaling"
+          : card.points === "science" || card.symbol
+          ? card.symbol
+            ? SCIENCE_EMOJI[card.symbol]
+            : "science"
+          : card.shields
+          ? `${card.shields} ⚔`
+          : card.points
+          ? `${card.points} pts`
+          : "—"}
       </span>
     </div>
   </div>
 ));
 
+const blankGame = () => ({
+  playerCount: 3,
+  wonder: null,
+  wonderSide: "A",
+  wonderStages: [],
+  civilianCards: [],
+  commercialCards: [],
+  guildsCards: [],
+  scienceCards: [],
+  militaryScore: 0,
+  coins: 0,
+  wonderScience: null, // chosen symbol for Babylon / Scientists guild copies
+  scientistsChoice: null,
+  neighborInteractions: {},
+});
+
 function App() {
   const [currentStep, setCurrentStep] = useState(0);
-  const [gameData, setGameData] = useState({
-    playerCount: 3,
-    wonder: null,
-    wonderSide: "A",
-    wonderStages: [],
-    civilianCards: [],
-    commercialCards: [],
-    militaryCards: [],
-    guildsCards: [],
-    scienceCards: [],
-    militaryScore: 0,
-    coins: 0,
-    wonderScience: { compass: 0, gear: 0, tablet: 0 },
-    neighborInteractions: {},
-  });
+  const [gameData, setGameData] = useState(blankGame);
   const [showNeighborDialog, setShowNeighborDialog] = useState(null);
+  const [toast, setToast] = useState("");
 
-  // Auto-update Babylon science when science cards change
+  const flash = useCallback((msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 1800);
+  }, []);
+
+  const currentStages = useMemo(
+    () => gameData.wonder?.stages?.[gameData.wonderSide] || [],
+    [gameData.wonder, gameData.wonderSide]
+  );
+
+  // Does the chosen wonder/side grant a free science symbol (Babylon)?
+  const wonderGrantsScience = useMemo(
+    () => currentStages.some((s, i) => s.science && gameData.wonderStages.includes(i + 1)),
+    [currentStages, gameData.wonderStages]
+  );
+  const hasScientistsGuild = gameData.guildsCards.some((c) => c.id === "scientists");
+  const needsScienceChoice = wonderGrantsScience || hasScientistsGuild;
+
+  const steps = useMemo(
+    () => [
+      "Players",
+      "Wonder",
+      "Stages",
+      "Coins",
+      "Civilian",
+      "Science",
+      ...(needsScienceChoice ? ["Science Bonus"] : []),
+      "Military",
+      "Commercial",
+      "Guilds",
+      "Score",
+    ],
+    [needsScienceChoice]
+  );
+
+  // Keep currentStep valid when the step list grows/shrinks.
   useEffect(() => {
-    if (steps[currentStep] === "Wonder Science Bonus" && gameData.wonder?.id === "babylon") {
-      const babylonData = calculateOptimalBabylonScience();
-      if (babylonData) {
-        setGameData((prev) => ({
-          ...prev,
-          wonderScience: {
-            compass: babylonData.bestChoice === "compass" ? 1 : 0,
-            gear: babylonData.bestChoice === "gear" ? 1 : 0,
-            tablet: babylonData.bestChoice === "tablet" ? 1 : 0,
-          },
-        }));
-      }
-    }
-  }, [gameData.scienceCards, currentStep]);
+    if (currentStep > steps.length - 1) setCurrentStep(steps.length - 1);
+  }, [steps.length, currentStep]);
 
-  const steps = [
-    "Player Count",
-    "Wonder Selection",
-    "Wonder Stages",
-    "Coins",
-    "Civilian Buildings (Blue)",
-    "Science Buildings (Green)",
-    ...(gameData.wonder?.id === "babylon" &&
-    ((gameData.wonderSide === "A" && gameData.wonderStages.length >= 2) ||
-      (gameData.wonderSide === "B" && gameData.wonderStages.length >= 2))
-      ? ["Wonder Science Bonus"]
-      : []),
-    "Military Score",
+  const nextStep = () => setCurrentStep((s) => Math.min(steps.length - 1, s + 1));
+  const prevStep = () => setCurrentStep((s) => Math.max(0, s - 1));
 
-    "Commercial Buildings (Yellow)",
-    "Guilds (Purple)",
-    "Final Score",
-  ];
+  const selectWonder = (wonder) => setGameData((prev) => ({ ...prev, wonder, wonderStages: [] }));
 
-  const nextStep = () => {
-    if (currentStep < steps.length - 1) {
-      setCurrentStep(currentStep + 1);
-    }
-  };
-
-  const prevStep = () => {
-    if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
-    }
-  };
-
-  const selectWonder = (wonder) => {
-    setGameData((prev) => ({ ...prev, wonder }));
-  };
-
-  const toggleWonderSide = () => {
-    setGameData((prev) => ({
-      ...prev,
-      wonderSide: prev.wonderSide === "A" ? "B" : "A",
-      wonderStages: [],
-    }));
-  };
+  const setSide = (side) =>
+    setGameData((prev) => ({ ...prev, wonderSide: side, wonderStages: [] }));
 
   const toggleWonderStage = (stage) => {
     setGameData((prev) => {
-      if (prev.wonderStages.includes(stage)) {
-        return {
-          ...prev,
-          wonderStages: prev.wonderStages.filter((s) => s < stage),
-        };
-      } else {
-        const allStages = [];
-        for (let i = 1; i <= stage; i++) {
-          allStages.push(i);
-        }
-        return {
-          ...prev,
-          wonderStages: [...new Set([...prev.wonderStages, ...allStages])],
-        };
+      const built = prev.wonderStages.includes(stage);
+      // Stages must be contiguous from stage 1 (rulebook: built left to right).
+      if (built) {
+        return { ...prev, wonderStages: prev.wonderStages.filter((s) => s < stage) };
       }
+      const all = Array.from({ length: stage }, (_, i) => i + 1);
+      return { ...prev, wonderStages: all };
     });
   };
 
   const toggleCard = (card, category) => {
-    const categoryKey = `${category}Cards`;
-    const isSelected = gameData[categoryKey].find((c) => c.id === card.id);
+    const key = `${category}Cards`;
+    const isSelected = gameData[key].some((c) => c.id === card.id);
 
     if (category === "guilds" && !isSelected && gameData.guildsCards.length >= gameData.playerCount) {
-      alert(`You can only select ${gameData.playerCount} guild cards.`);
+      flash(`Only ${gameData.playerCount} guild cards are in a ${gameData.playerCount}-player game.`);
       return;
     }
 
     setGameData((prev) => ({
       ...prev,
-      [categoryKey]: isSelected ? prev[categoryKey].filter((c) => c.id !== card.id) : [...prev[categoryKey], card],
+      [key]: isSelected ? prev[key].filter((c) => c.id !== card.id) : [...prev[key], card],
     }));
 
-    if (card.points === "neighbor" && !isSelected) {
-      setShowNeighborDialog({ card, category });
+    const needsPrompt = card.points === "scaling";
+    if (needsPrompt && !isSelected) setShowNeighborDialog({ card, category });
+    if (isSelected) {
+      // Clear any stored interaction value when deselecting.
+      setGameData((prev) => {
+        const ni = { ...prev.neighborInteractions };
+        delete ni[card.id];
+        return { ...prev, neighborInteractions: ni };
+      });
     }
   };
 
-  const handleNeighborInteraction = (value) => {
-    const { multiplier, max } = getNeighborPrompt(showNeighborDialog.card.id);
-    const actualValue = Math.min(parseInt(value) || 0, max || Infinity);
-    const actualPoints = actualValue * multiplier;
+  const getPrompt = useCallback(
+    (cardId) => {
+      const wonderStageCount = currentStages.length;
+      const prompts = {
+        // Guilds (count neighbors unless noted)
+        workers: { q: "Brown (raw material) cards in BOTH neighbors?", mult: 1, kind: "vp" },
+        craftmens: { q: "Gray (manufactured good) cards in BOTH neighbors?", mult: 2, kind: "vp" },
+        traders: { q: "Yellow (commercial) cards in BOTH neighbors?", mult: 1, kind: "vp" },
+        philosophers: { q: "Green (science) cards in BOTH neighbors?", mult: 1, kind: "vp" },
+        spies: { q: "Red (military) cards in BOTH neighbors?", mult: 1, kind: "vp" },
+        strategists: { q: "Defeat tokens in BOTH neighbors?", mult: 1, kind: "vp" },
+        shipowners: { q: "Brown + gray + purple cards in YOUR city?", mult: 1, kind: "vp" },
+        magistrates: { q: "Blue (civilian) cards in BOTH neighbors?", mult: 1, kind: "vp" },
+        builders: { q: "Wonder stages built — YOU + both neighbors?", mult: 1, kind: "vp" },
+        // Commercial (Age III VP cards)
+        haven: { q: "Brown (raw material) cards in YOUR city?", mult: 1, kind: "vp" },
+        lighthouse: { q: "Yellow (commercial) cards in YOUR city?", mult: 1, kind: "vp" },
+        chamber: { q: "Gray (manufactured good) cards in YOUR city?", mult: 2, kind: "vp" },
+        arena: {
+          q: `Wonder stages YOU built? (max ${wonderStageCount})`,
+          mult: 3,
+          kind: "vp",
+          max: wonderStageCount,
+        },
+      };
+      return prompts[cardId] || { q: "Points from this card:", mult: 1, kind: "vp" };
+    },
+    [currentStages.length]
+  );
 
+  const handleNeighborInteraction = (raw) => {
+    const { mult, max } = getPrompt(showNeighborDialog.card.id);
+    const count = Math.max(0, Math.min(parseInt(raw, 10) || 0, max ?? Infinity));
     setGameData((prev) => ({
       ...prev,
-      neighborInteractions: {
-        ...prev.neighborInteractions,
-        [showNeighborDialog.card.id]: actualPoints,
-      },
+      neighborInteractions: { ...prev.neighborInteractions, [showNeighborDialog.card.id]: count * mult },
     }));
     setShowNeighborDialog(null);
   };
 
-  const getNeighborPrompt = (cardId) => {
-    const maxWonderStages = gameData.wonder?.id === "gizah" && gameData.wonderSide === "B" ? 4 : 3;
+  // --- Optimal science symbol for Babylon / Scientists Guild ---------------
+  const scienceCounts = useMemo(() => {
+    const c = { compass: 0, gear: 0, tablet: 0 };
+    gameData.scienceCards.forEach((card) => c[card.symbol]++);
+    return c;
+  }, [gameData.scienceCards]);
 
-    const prompts = {
-      workers: { question: "How many brown resource cards do your neighbors have?", multiplier: 1 },
-      craftmens: { question: "How many gray manufactured good cards do your neighbors have?", multiplier: 2 },
-      traders: { question: "How many yellow commercial cards do your neighbors have?", multiplier: 1 },
-      philosophers: { question: "How many green science cards do your neighbors have?", multiplier: 1 },
-      spies: { question: "How many red military cards do your neighbors have?", multiplier: 1 },
-      strategists: { question: "How many military defeat tokens do your neighbors have?", multiplier: 1 },
-      shipowners: { question: "How many brown/gray/purple cards do your neighbors have?", multiplier: 1 },
-      scientists: { question: "How many science symbols do your neighbors have?", multiplier: 1 },
-      magistrates: { question: "How many blue civilian cards do your neighbors have?", multiplier: 1 },
-      builders: { question: "How many wonder stages have your neighbors built?", multiplier: 1 },
-      easttrading: { question: "How many brown resource cards does your right neighbor have?", multiplier: 1 },
-      westtrading: { question: "How many brown resource cards does your left neighbor have?", multiplier: 1 },
-      marketplace: { question: "How many gray manufactured good cards do your neighbors have?", multiplier: 1 },
-      caravansery: { question: "How many brown resource cards do your neighbors have?", multiplier: 1 },
-      forum: { question: "How many gray manufactured good cards do your neighbors have?", multiplier: 1 },
-      vineyard: { question: "How many brown resource cards do you and your neighbors have?", multiplier: 1 },
-      bazaar: { question: "How many gray manufactured good cards do you and your neighbors have?", multiplier: 2 },
-      haven: { question: "How many brown resource cards do you have?", multiplier: 1 },
-      lighthouse: { question: "How many yellow commercial cards do you have?", multiplier: 1 },
-      chamber: { question: "How many gray manufactured good cards do you have?", multiplier: 2 },
-      arena: {
-        question: `How many wonder stages have you built? (Max ${maxWonderStages})`,
-        multiplier: 3,
-        max: maxWonderStages,
-      },
-      ludus: { question: "How many wonder stages have your neighbors built?", multiplier: 3 },
-    };
-
-    return prompts[cardId] || { question: "Enter points from neighbors:", multiplier: 1 };
+  const scienceScoreFor = (counts) => {
+    const sets = Math.min(counts.compass, counts.gear, counts.tablet);
+    return counts.compass ** 2 + counts.gear ** 2 + counts.tablet ** 2 + sets * 7;
   };
 
-  const renderPlayerCount = () => (
+  // How many free symbols the player gets to assign (Babylon + Scientists guild).
+  const freeSymbols = (wonderGrantsScience ? 1 : 0) + (hasScientistsGuild ? 1 : 0);
+
+  const optimalSymbol = useMemo(() => {
+    if (freeSymbols === 0) return null;
+    let best = "compass";
+    let bestScore = -1;
+    ["compass", "gear", "tablet"].forEach((choice) => {
+      const test = { ...scienceCounts };
+      // Assign all free symbols to the same family as a baseline suggestion.
+      test[choice] += freeSymbols;
+      const score = scienceScoreFor(test);
+      if (score > bestScore) {
+        bestScore = score;
+        best = choice;
+      }
+    });
+    return best;
+  }, [scienceCounts, freeSymbols]);
+
+  // Auto-pick the optimal symbol when the bonus step is relevant.
+  useEffect(() => {
+    if (freeSymbols > 0 && optimalSymbol && gameData.wonderScience !== optimalSymbol) {
+      setGameData((prev) => ({ ...prev, wonderScience: optimalSymbol }));
+    }
+    if (freeSymbols === 0 && gameData.wonderScience !== null) {
+      setGameData((prev) => ({ ...prev, wonderScience: null }));
+    }
+  }, [freeSymbols, optimalSymbol]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Final score ---------------------------------------------------------
+  const score = useMemo(() => {
+    const b = { wonder: 0, civilian: 0, military: 0, science: 0, commercial: 0, guilds: 0, coins: 0 };
+    let coinTotal = gameData.coins;
+
+    // Civilian (flat VP)
+    b.civilian = gameData.civilianCards.reduce((s, c) => s + (c.points || 0), 0);
+
+    // Military conflict tokens (entered directly)
+    b.military = gameData.militaryScore;
+
+    // Wonder stages: VP + accumulate coins
+    currentStages.forEach((stage, i) => {
+      if (gameData.wonderStages.includes(i + 1)) {
+        b.wonder += stage.vp || 0;
+        coinTotal += stage.coins || 0;
+      }
+    });
+
+    // Science: card symbols + free symbols (Babylon / Scientists guild)
+    const sym = { ...scienceCounts };
+    if (gameData.wonderScience) sym[gameData.wonderScience] += freeSymbols;
+    b.science = scienceScoreFor(sym);
+
+    // Commercial: flat VP + Age III scaling cards (haven/lighthouse/chamber/arena)
+    b.commercial = gameData.commercialCards.reduce((s, c) => {
+      if (c.points === "scaling") return s + (gameData.neighborInteractions[c.id] || 0);
+      return s + (c.points || 0);
+    }, 0);
+
+    // Guilds: scaling cards. Scientists guild scores via the science block above.
+    b.guilds = gameData.guildsCards.reduce((s, c) => {
+      if (c.id === "scientists") return s; // already in science
+      return s + (gameData.neighborInteractions[c.id] || 0);
+    }, 0);
+
+    // Coins → 1 VP per 3
+    b.coins = Math.floor(coinTotal / 3);
+
+    const total = Object.values(b).reduce((a, n) => a + n, 0);
+    return { total, breakdown: b, coinTotal };
+  }, [gameData, currentStages, scienceCounts, freeSymbols]);
+
+  // --- Persistence ---------------------------------------------------------
+  const saveGame = () => {
+    try {
+      const { wonder, ...rest } = gameData;
+      localStorage.setItem("7wonders_game", JSON.stringify({ ...rest, wonderId: wonder?.id }));
+      flash("Game saved");
+    } catch {
+      flash("Could not save");
+    }
+  };
+
+  const loadGame = () => {
+    try {
+      const saved = localStorage.getItem("7wonders_game");
+      if (!saved) return flash("No saved game found");
+      const parsed = JSON.parse(saved);
+      const wonder = WONDERS.find((w) => w.id === parsed.wonderId) || null;
+      setGameData({ ...blankGame(), ...parsed, wonder });
+      setCurrentStep(0);
+      flash("Game loaded");
+    } catch {
+      flash("Could not load saved game");
+    }
+  };
+
+  const resetGame = () => {
+    setGameData(blankGame());
+    setCurrentStep(0);
+    flash("New game");
+  };
+
+  // --- Render helpers ------------------------------------------------------
+  const stepName = steps[currentStep];
+
+  const renderPlayers = () => (
     <div className="step-content">
       <h2>Number of Players</h2>
       <div className="player-count-selector">
@@ -355,16 +530,14 @@ function App() {
               key={count}
               className={`player-btn ${gameData.playerCount === count ? "active" : ""}`}
               onClick={() => setGameData((prev) => ({ ...prev, playerCount: count }))}
-              aria-label={`Select ${count} players`}
             >
-              {count} Players
+              {count}
             </button>
           ))}
         </div>
         <p className="player-info">
-          Guild cards available: {gameData.playerCount + 2}
-          <br />
-          (Only {gameData.playerCount} guilds will be used in the game)
+          {gameData.playerCount + 2} guilds are dealt, but only {gameData.playerCount} (= players + 2 removed)
+          stay in the Age III deck.
         </p>
       </div>
     </div>
@@ -381,84 +554,89 @@ function App() {
             onClick={() => selectWonder(wonder)}
             role="button"
             tabIndex={0}
-            onKeyDown={(e) => e.key === "Enter" && selectWonder(wonder)}
-            aria-label={`Select ${wonder.name} wonder`}
+            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), selectWonder(wonder))}
+            aria-pressed={gameData.wonder?.id === wonder.id}
+            aria-label={`${wonder.name} — ${wonder.sub}`}
           >
             <div className="wonder-icon">{wonder.icon}</div>
             <h3>{wonder.name}</h3>
+            <span className="wonder-sub">{wonder.sub}</span>
           </div>
         ))}
       </div>
     </div>
   );
 
-  const renderWonderStages = () => {
-    const wonderStages = gameData.wonder?.stages[gameData.wonderSide] || [];
-
-    return (
-      <div className="step-content">
-        <h2>Wonder Stages - {gameData.wonder?.name}</h2>
-        <div className="wonder-side-selector">
-          <button
-            className={`side-btn ${gameData.wonderSide === "A" ? "active" : ""}`}
-            onClick={toggleWonderSide}
-            aria-label="Select Side A (Day)"
-          >
-            Side A (Day)
-          </button>
-          <button
-            className={`side-btn ${gameData.wonderSide === "B" ? "active" : ""}`}
-            onClick={toggleWonderSide}
-            aria-label="Select Side B (Night)"
-          >
-            Side B (Night)
-          </button>
-        </div>
-        <div className="wonder-stages">
-          <h3>Select Completed Stages:</h3>
-          {wonderStages.map((stagePoints, index) => {
-            const stageNumber = index + 1;
-            return (
-              <div
-                key={stageNumber}
-                className={`stage-card ${gameData.wonderStages.includes(stageNumber) ? "selected" : ""}`}
-                onClick={() => toggleWonderStage(stageNumber)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => e.key === "Enter" && toggleWonderStage(stageNumber)}
-                aria-label={`Toggle Stage ${stageNumber}`}
-              >
-                <div className="stage-header">
-                  Stage {stageNumber} ({gameData.wonderSide})
-                </div>
-                <div className="stage-points">{stagePoints} VP</div>
-              </div>
-            );
-          })}
-        </div>
+  const renderStages = () => (
+    <div className="step-content">
+      <h2>Wonder Stages — {gameData.wonder?.name}</h2>
+      <div className="wonder-board">
+        <img
+          src={scaledArt(gameData.wonder.art[gameData.wonderSide])}
+          alt={`${gameData.wonder.name} board, side ${gameData.wonderSide}`}
+          loading="lazy"
+          onError={(e) => (e.currentTarget.style.display = "none")}
+        />
       </div>
-    );
-  };
+      <div className="wonder-side-selector">
+        <button className={`side-btn ${gameData.wonderSide === "A" ? "active" : ""}`} onClick={() => setSide("A")}>
+          Side A (Day)
+        </button>
+        <button className={`side-btn ${gameData.wonderSide === "B" ? "active" : ""}`} onClick={() => setSide("B")}>
+          Side B (Night)
+        </button>
+      </div>
+      {currentStages.some((s) => s.science) && (
+        <p className="muted" style={{ textAlign: "center", marginTop: 0 }}>
+          🔬 A stage of this wonder grants a science symbol — once built, you'll pick which one on the
+          <strong> Science Bonus</strong> step, and it's added to your science score.
+        </p>
+      )}
+      <div className="wonder-stages">
+        <h3>Tap each stage you completed (in order)</h3>
+        {currentStages.map((stage, index) => {
+          const n = index + 1;
+          const built = gameData.wonderStages.includes(n);
+          return (
+            <div
+              key={n}
+              className={`stage-card ${built ? "selected" : ""}`}
+              onClick={() => toggleWonderStage(n)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), toggleWonderStage(n))}
+              aria-pressed={built}
+            >
+              <div className="stage-header">Stage {n}</div>
+              <div className="stage-points">{stage.vp ? `${stage.vp} VP` : "—"}</div>
+              {(stage.coins || stage.note) && (
+                <div className="stage-note">{stage.note || `+${stage.coins} coins`}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   const renderCardSelection = (category, cards, title) => (
     <div className="step-content">
       <h2>{title}</h2>
       {[1, 2, 3].map((age) => {
-        const filteredCards = cards.filter((card) => !card.age || card.age === age);
-        if (filteredCards.length === 0) return null;
-        
+        const filtered = cards.filter((c) => !c.age || c.age === age);
+        if (!filtered.length) return null;
         return (
-          <div key={age}>
+          <div key={age} className="age-group">
             <h3>Age {age}</h3>
             <div className="card-grid">
-              {filteredCards.map((card) => (
+              {filtered.map((card) => (
                 <Card
                   key={card.id}
                   card={card}
                   category={category}
-                  selected={gameData[`${category}Cards`]?.find((c) => c.id === card.id)}
+                  selected={gameData[`${category}Cards`].some((c) => c.id === card.id)}
                   toggleCard={toggleCard}
-                  getNeighborPrompt={getNeighborPrompt}
+                  hint={card.points === "scaling" ? getPrompt(card.id).q : ""}
                 />
               ))}
             </div>
@@ -471,403 +649,186 @@ function App() {
   const renderGuilds = () => (
     <div className="step-content">
       <h2>Guilds (Purple)</h2>
-      <p>Select up to {gameData.playerCount} guild cards (only {gameData.playerCount} are used in the game)</p>
+      <p className="muted">
+        Selected {gameData.guildsCards.length}/{gameData.playerCount}. The Scientists Guild adds a science symbol
+        instead of a flat value.
+      </p>
       <div className="card-grid">
         {CARDS.guilds.map((card) => (
           <Card
             key={card.id}
             card={card}
             category="guilds"
-            selected={gameData.guildsCards?.find((c) => c.id === card.id)}
+            selected={gameData.guildsCards.some((c) => c.id === card.id)}
             toggleCard={toggleCard}
-            getNeighborPrompt={getNeighborPrompt}
+            hint={card.points === "scaling" ? getPrompt(card.id).q : "Adds a science symbol of choice"}
           />
         ))}
       </div>
     </div>
   );
 
-  const calculateOptimalBabylonScience = () => {
-    if (
-      gameData.wonder?.id !== "babylon" ||
-      !(
-        (gameData.wonderSide === "A" && gameData.wonderStages.length >= 2) ||
-        (gameData.wonderSide === "B" && gameData.wonderStages.length >= 2)
-      )
-    ) {
-      return null;
-    }
-
-    const currentSymbols = { compass: 0, gear: 0, tablet: 0 };
-    gameData.scienceCards.forEach((card) => {
-      currentSymbols[card.symbol]++;
-    });
-
-    const choices = ["compass", "gear", "tablet"];
-    let bestChoice = "compass";
-    let bestScore = 0;
-
-    choices.forEach((choice) => {
-      const testSymbols = { ...currentSymbols };
-      testSymbols[choice]++;
-
-      const compassSquared = testSymbols.compass * testSymbols.compass;
-      const gearSquared = testSymbols.gear * testSymbols.gear;
-      const tabletSquared = testSymbols.tablet * testSymbols.tablet;
-      const sets = Math.min(testSymbols.compass, testSymbols.gear, testSymbols.tablet);
-
-      const score = compassSquared + gearSquared + tabletSquared + sets * 7;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestChoice = choice;
-      }
-    });
-
-    return { bestChoice, bestScore, currentSymbols };
-  };
-
-  const renderWonderScience = () => {
-    const babylonData = calculateOptimalBabylonScience();
-
-    if (!babylonData) {
-      return (
-        <div className="step-content">
-          <h2>Wonder Science Bonus</h2>
-          <p>Your wonder doesn't provide science symbols. Click Next to continue.</p>
+  const renderScienceBonus = () => (
+    <div className="step-content">
+      <h2>Science Bonus</h2>
+      <div className="babylon-analysis">
+        <p>
+          You have {freeSymbols} free science symbol{freeSymbols > 1 ? "s" : ""} to assign
+          {wonderGrantsScience ? " (Babylon)" : ""}
+          {wonderGrantsScience && hasScientistsGuild ? " + " : ""}
+          {hasScientistsGuild ? "(Scientists Guild)" : ""}.
+        </p>
+        <div className="current-science">
+          <span>🧭 {scienceCounts.compass}</span>
+          <span>⚙️ {scienceCounts.gear}</span>
+          <span>📜 {scienceCounts.tablet}</span>
         </div>
-      );
-    }
-
-    const { bestChoice, currentSymbols } = babylonData;
-    const symbolEmoji = bestChoice === "compass" ? "🧭" : bestChoice === "gear" ? "⚙️" : "📜";
-
-    return (
-      <div className="step-content">
-        <h2>Wonder Science Bonus - Babylon</h2>
-        <div className="babylon-analysis">
-          <p>Your current science cards:</p>
-          <div className="current-science">
-            <span>🧭 Compass: {currentSymbols.compass}</span>
-            <span>⚙️ Gear: {currentSymbols.gear}</span>
-            <span>📜 Tablet: {currentSymbols.tablet}</span>
-          </div>
+        <p className="muted">Choose which symbol to add (optimal pre-selected):</p>
+        <div className="science-selector">
+          {["compass", "gear", "tablet"].map((s) => (
+            <button
+              key={s}
+              className={`science-btn ${gameData.wonderScience === s ? "active" : ""}`}
+              onClick={() => setGameData((prev) => ({ ...prev, wonderScience: s }))}
+            >
+              {SCIENCE_EMOJI[s]} {s}
+            </button>
+          ))}
+        </div>
+        {optimalSymbol && (
           <div className="optimal-choice">
             <h3>
-              Optimal Choice: {symbolEmoji} {bestChoice}
+              Optimal: {SCIENCE_EMOJI[optimalSymbol]} {optimalSymbol}
             </h3>
-            <p>This maximizes your science score based on your current cards.</p>
+            <p>Maximizes science points given your current green cards.</p>
           </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderMilitaryScore = () => (
-    <div className="step-content">
-      <h2>Military Score</h2>
-      <div className="military-input">
-        <label>Total Military Points:</label>
-        <div className="input-with-buttons">
-          <button
-            className="increment-btn"
-            onClick={() =>
-              setGameData((prev) => ({
-                ...prev,
-                militaryScore: Math.max(-6, prev.militaryScore - 1),
-              }))
-            }
-            aria-label="Decrease military score"
-          >
-            ↓
-          </button>
-          <input
-            type="number"
-            value={gameData.militaryScore}
-            onChange={(e) =>
-              setGameData((prev) => ({
-                ...prev,
-                militaryScore: parseInt(e.target.value) || 0,
-              }))
-            }
-            min="-6"
-            max="18"
-            aria-label="Enter total military points"
-          />
-          <button
-            className="increment-btn"
-            onClick={() =>
-              setGameData((prev) => ({
-                ...prev,
-                militaryScore: Math.min(18, prev.militaryScore + 1),
-              }))
-            }
-            aria-label="Increase military score"
-          >
-            ↑
-          </button>
-        </div>
-        <p>Enter your total military victory points (+1/+3/+5 per age win, -1 per loss)</p>
+        )}
       </div>
     </div>
   );
 
-  const renderCoins = () => (
+  const renderStepper = (key, min, max, label, hint) => (
     <div className="step-content">
-      <h2>Coins</h2>
+      <h2>{label}</h2>
       <div className="military-input">
-        <label>Total Coins:</label>
         <div className="input-with-buttons">
           <button
             className="increment-btn"
-            onClick={() =>
-              setGameData((prev) => ({
-                ...prev,
-                coins: Math.max(0, prev.coins - 1),
-              }))
-            }
-            aria-label="Decrease coins"
+            onClick={() => setGameData((prev) => ({ ...prev, [key]: Math.max(min, prev[key] - 1) }))}
+            aria-label={`Decrease ${label}`}
           >
-            ↓
+            −
           </button>
           <input
             type="number"
-            value={gameData.coins}
-            onChange={(e) =>
-              setGameData((prev) => ({
-                ...prev,
-                coins: parseInt(e.target.value) || 0,
-              }))
-            }
-            min="0"
-            aria-label="Enter total coins"
+            value={gameData[key]}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              setGameData((prev) => ({ ...prev, [key]: Math.max(min, Math.min(max, isNaN(v) ? 0 : v)) }));
+            }}
+            min={min}
+            max={max}
+            aria-label={label}
           />
           <button
             className="increment-btn"
-            onClick={() =>
-              setGameData((prev) => ({
-                ...prev,
-                coins: prev.coins + 1,
-              }))
-            }
-            aria-label="Increase coins"
+            onClick={() => setGameData((prev) => ({ ...prev, [key]: Math.min(max, prev[key] + 1) }))}
+            aria-label={`Increase ${label}`}
           >
-            ↑
+            +
           </button>
         </div>
-        <p>Enter your total coins (1 VP per 3 coins). Ephesos (Side B) adds 4 coins per stage.</p>
+        <p>{hint}</p>
       </div>
     </div>
   );
 
-  const renderFinalScore = () => {
-    const calculateScore = () => {
-      let total = 0;
-      let breakdown = {};
-
-      const civilianPoints = gameData.civilianCards.reduce((sum, card) => sum + (card.points || 0), 0);
-      breakdown.civilian = civilianPoints;
-      total += civilianPoints;
-
-      breakdown.military = gameData.militaryScore;
-      total += gameData.militaryScore;
-
-      const wonderPoints = gameData.wonderStages.reduce((sum, stageNum) => {
-        const stagePoints = gameData.wonder?.stages[gameData.wonderSide]?.[stageNum - 1];
-        return sum + (stagePoints || 0);
-      }, 0);
-
-      let wonderBonus = 0;
-      if (gameData.wonder?.id === "gizah" && gameData.wonderStages.length > 0) {
-        const maxStage = Math.max(...gameData.wonderStages);
-        if (gameData.wonderSide === "A" && maxStage >= 3) {
-          wonderBonus = gameData.wonderStages.length * 2;
-        } else if (gameData.wonderSide === "B") {
-          if (maxStage >= 4) {
-            wonderBonus = gameData.wonderStages.length * 4;
-          } else if (maxStage >= 3) {
-            wonderBonus = gameData.wonderStages.length * 3;
-          }
-        }
-      }
-
-      breakdown.wonder = wonderPoints + wonderBonus;
-      total += wonderPoints + wonderBonus;
-
-      const scienceSymbols = { compass: 0, gear: 0, tablet: 0 };
-      gameData.scienceCards.forEach((card) => {
-        scienceSymbols[card.symbol]++;
-      });
-      scienceSymbols.compass += gameData.wonderScience.compass;
-      scienceSymbols.gear += gameData.wonderScience.gear;
-      scienceSymbols.tablet += gameData.wonderScience.tablet;
-
-      const compassSquared = scienceSymbols.compass * scienceSymbols.compass;
-      const gearSquared = scienceSymbols.gear * scienceSymbols.gear;
-      const tabletSquared = scienceSymbols.tablet * scienceSymbols.tablet;
-      const sets = Math.min(scienceSymbols.compass, scienceSymbols.gear, scienceSymbols.tablet);
-
-      const sciencePoints = compassSquared + gearSquared + tabletSquared + sets * 7;
-      breakdown.science = sciencePoints;
-      total += sciencePoints;
-
-      const commercialPoints = gameData.commercialCards.reduce((sum, card) => {
-        if (card.points === "neighbor") {
-          return sum + (gameData.neighborInteractions[card.id] || 0);
-        }
-        return sum + (card.points || 0);
-      }, 0);
-      breakdown.commercial = commercialPoints;
-      total += commercialPoints;
-
-      const guildPoints = gameData.guildsCards.reduce((sum, card) => {
-        return sum + (gameData.neighborInteractions[card.id] || 0);
-      }, 0);
-      breakdown.guilds = guildPoints;
-      total += guildPoints;
-
-      const coinPoints = Math.floor(gameData.coins / 3);
-      breakdown.coins = coinPoints;
-      total += coinPoints;
-
-      return { total, breakdown };
-    };
-
-    const { total, breakdown } = calculateScore();
-
+  const renderScore = () => {
+    const { total, breakdown, coinTotal } = score;
+    const entries = [
+      ["Wonder", breakdown.wonder, "#FF6384"],
+      ["Civilian", breakdown.civilian, "#36A2EB"],
+      ["Military", breakdown.military, "#FF5252"],
+      ["Science", breakdown.science, "#4BC0C0"],
+      ["Commercial", breakdown.commercial, "#FFCE56"],
+      ["Guilds", breakdown.guilds, "#9966FF"],
+      ["Coins", breakdown.coins, "#C9CBCF"],
+    ];
+    const positive = entries.filter(([, v]) => v > 0);
     const chartData = {
-      labels: ["Wonder", "Civilian", "Military", "Science", "Commercial", "Guilds", "Coins"],
-      datasets: [
-        {
-          data: [
-            breakdown.wonder,
-            breakdown.civilian,
-            breakdown.military,
-            breakdown.science,
-            breakdown.commercial,
-            breakdown.guilds,
-            breakdown.coins,
-          ],
-          backgroundColor: ["#FF6384", "#36A2EB", "#FFCE56", "#4BC0C0", "#9966FF", "#FF9F40", "#C9CBCF"],
-        },
-      ],
+      labels: positive.map(([l]) => l),
+      datasets: [{ data: positive.map(([, v]) => v), backgroundColor: positive.map(([, , c]) => c) }],
     };
-
     const chartOptions = {
       responsive: true,
-      plugins: {
-        legend: { position: "top" },
-        title: { display: true, text: "Score Breakdown" },
-      },
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" }, title: { display: false } },
     };
 
     return (
       <div className="step-content">
         <h2>Final Score</h2>
-        <div className="score-breakdown">
-          <div className="score-item">
-            <span>Wonder Stages:</span>
-            <span>{breakdown.wonder} pts</span>
+        <div className="score-layout">
+          <div className="score-breakdown">
+            {entries.map(([label, val, color]) => (
+              <div className="score-item" key={label}>
+                <span>
+                  <span className="dot" style={{ background: color }} /> {label}
+                </span>
+                <span>{val} pts</span>
+              </div>
+            ))}
+            <div className="score-item muted-row">
+              <span>(Coins on hand)</span>
+              <span>{coinTotal}🪙</span>
+            </div>
+            <div className="score-total">
+              <span>Total</span>
+              <span>{total} pts</span>
+            </div>
           </div>
-          <div className="score-item">
-            <span>Civilian Buildings:</span>
-            <span>{breakdown.civilian} pts</span>
-          </div>
-          <div className="score-item">
-            <span>Military Conflicts:</span>
-            <span>{breakdown.military} pts</span>
-          </div>
-          <div className="score-item">
-            <span>Science Buildings:</span>
-            <span>{breakdown.science} pts</span>
-          </div>
-          <div className="score-item">
-            <span>Commercial Buildings:</span>
-            <span>{breakdown.commercial} pts</span>
-          </div>
-          <div className="score-item">
-            <span>Guilds:</span>
-            <span>{breakdown.guilds} pts</span>
-          </div>
-          <div className="score-item">
-            <span>Coins:</span>
-            <span>{breakdown.coins} pts</span>
-          </div>
-          <div className="score-total">
-            <span>Total Score:</span>
-            <span>{total} pts</span>
-          </div>
+          {positive.length > 0 && (
+            <div className="score-chart">
+              <Pie data={chartData} options={chartOptions} />
+            </div>
+          )}
         </div>
-        {/* <div className="score-chart">
-          <Pie data={chartData} options={chartOptions} />
-        </div> */}
       </div>
     );
   };
 
-  const saveGame = () => {
-    localStorage.setItem("7wonders_game", JSON.stringify(gameData));
-    alert("Game saved!");
-  };
-
-  const loadGame = () => {
-    const saved = localStorage.getItem("7wonders_game");
-    if (saved) {
-      setGameData(JSON.parse(saved));
-      alert("Game loaded!");
-    } else {
-      alert("No saved game found.");
-    }
-  };
-
-  const resetGame = () => {
-    setGameData({
-      playerCount: 3,
-      wonder: null,
-      wonderSide: "A",
-      wonderStages: [],
-      civilianCards: [],
-      commercialCards: [],
-      militaryCards: [],
-      guildsCards: [],
-      scienceCards: [],
-      militaryScore: 0,
-      coins: 0,
-      wonderScience: { compass: 0, gear: 0, tablet: 0 },
-      neighborInteractions: {},
-    });
-    setCurrentStep(0);
-    alert("Game reset!");
-  };
-
   const renderCurrentStep = () => {
-    const stepName = steps[currentStep];
-
     switch (stepName) {
-      case "Player Count":
-        return renderPlayerCount();
-      case "Wonder Selection":
+      case "Players":
+        return renderPlayers();
+      case "Wonder":
         return renderWonderSelection();
-      case "Wonder Stages":
-        return renderWonderStages();
-      case "Civilian Buildings (Blue)":
-        return renderCardSelection("civilian", CARDS.civilian, "Civilian Buildings (Blue)");
-      case "Science Buildings (Green)":
-        return renderCardSelection("science", CARDS.science, "Science Buildings (Green)");
-      case "Wonder Science Bonus":
-        return renderWonderScience();
-      case "Military Score":
-        return renderMilitaryScore();
+      case "Stages":
+        return renderStages();
       case "Coins":
-        return renderCoins();
-      case "Commercial Buildings (Yellow)":
+        return renderStepper("coins", 0, 999, "Coins", "1 VP per 3 coins. Wonder coins are added automatically.");
+      case "Civilian":
+        return renderCardSelection("civilian", CARDS.civilian, "Civilian Buildings (Blue)");
+      case "Science":
+        return renderCardSelection("science", CARDS.science, "Science Buildings (Green)");
+      case "Science Bonus":
+        return renderScienceBonus();
+      case "Military":
+        return renderStepper(
+          "militaryScore",
+          -6,
+          18,
+          "Military Conflict Points",
+          "Sum of your conflict tokens: +1/+3/+5 per Age won, −1 per Age lost."
+        );
+      case "Commercial":
         return renderCardSelection("commercial", CARDS.commercial, "Commercial Buildings (Yellow)");
-      case "Guilds (Purple)":
+      case "Guilds":
         return renderGuilds();
-      case "Final Score":
-        return renderFinalScore();
+      case "Score":
+        return renderScore();
       default:
-        return renderPlayerCount();
+        return renderPlayers();
     }
   };
 
@@ -876,14 +837,14 @@ function App() {
       <div className="app">
         <h1>7 Wonders Calculator</h1>
         <div className="game-controls">
-          <button onClick={saveGame} className="nav-btn" aria-label="Save game">
-            Save Game
+          <button onClick={saveGame} className="ghost-btn">
+            Save
           </button>
-          <button onClick={loadGame} className="nav-btn" aria-label="Load game">
-            Load Game
+          <button onClick={loadGame} className="ghost-btn">
+            Load
           </button>
-          <button onClick={resetGame} className="nav-btn" aria-label="Reset game">
-            Reset Game
+          <button onClick={resetGame} className="ghost-btn">
+            New Game
           </button>
         </div>
 
@@ -891,14 +852,14 @@ function App() {
           <div className="steps">
             {steps.map((step, index) => (
               <div
-                key={index}
+                key={step}
                 className={`step ${index === currentStep ? "active" : ""} ${index < currentStep ? "completed" : ""}`}
-                onClick={() => (index <= currentStep ? setCurrentStep(index) : null)}
+                onClick={() => index <= currentStep && setCurrentStep(index)}
                 style={{ cursor: index <= currentStep ? "pointer" : "not-allowed" }}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => e.key === "Enter" && index <= currentStep && setCurrentStep(index)}
-                aria-label={`Go to ${step}`}
+                aria-current={index === currentStep ? "step" : undefined}
               >
                 {step}
               </div>
@@ -909,51 +870,42 @@ function App() {
         {renderCurrentStep()}
 
         <div className="navigation">
-          <button onClick={prevStep} disabled={currentStep === 0} className="nav-btn" aria-label="Go to previous step">
-            Previous
+          <button onClick={prevStep} disabled={currentStep === 0} className="nav-btn">
+            ‹ Previous
           </button>
           <span className="step-counter">
-            {currentStep + 1} of {steps.length}
+            {currentStep + 1} / {steps.length}
           </span>
           <button
             onClick={nextStep}
-            disabled={
-              currentStep === steps.length - 1 || (steps[currentStep] === "Wonder Selection" && !gameData.wonder)
-            }
+            disabled={currentStep === steps.length - 1 || (stepName === "Wonder" && !gameData.wonder)}
             className="nav-btn"
-            aria-label="Go to next step"
           >
-            Next
+            Next ›
           </button>
         </div>
 
         {showNeighborDialog && (
-          <div className="modal-overlay">
-            <div className="neighbor-dialog">
-              <h3>{showNeighborDialog.card.name}</h3>
-              <p>{getNeighborPrompt(showNeighborDialog.card.id).question}</p>
+          <div className="modal-overlay" onClick={() => setShowNeighborDialog(null)}>
+            <div className="neighbor-dialog" onClick={(e) => e.stopPropagation()}>
+              <h3>
+                {showNeighborDialog.card.icon} {showNeighborDialog.card.name}
+              </h3>
+              <p>{getPrompt(showNeighborDialog.card.id).q}</p>
               <input
                 type="number"
                 min="0"
-                max={getNeighborPrompt(showNeighborDialog.card.id).max || undefined}
-                placeholder="Count"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleNeighborInteraction(e.target.value);
-                  }
-                }}
-                aria-label="Enter neighbor interaction count"
+                max={getPrompt(showNeighborDialog.card.id).max || undefined}
+                placeholder="0"
+                autoFocus
+                onKeyDown={(e) => e.key === "Enter" && handleNeighborInteraction(e.target.value)}
+                aria-label="Count"
               />
+              <p className="muted">×{getPrompt(showNeighborDialog.card.id).mult} VP each</p>
               <div className="dialog-buttons">
-                <button onClick={() => handleNeighborInteraction(0)} aria-label="Cancel neighbor input">
-                  Cancel
-                </button>
+                <button onClick={() => handleNeighborInteraction(0)}>Cancel</button>
                 <button
-                  onClick={() => {
-                    const input = document.querySelector(".neighbor-dialog input");
-                    handleNeighborInteraction(input.value);
-                  }}
-                  aria-label="Confirm neighbor input"
+                  onClick={() => handleNeighborInteraction(document.querySelector(".neighbor-dialog input").value)}
                 >
                   Confirm
                 </button>
@@ -961,6 +913,8 @@ function App() {
             </div>
           </div>
         )}
+
+        {toast && <div className="toast">{toast}</div>}
       </div>
     </ErrorBoundary>
   );

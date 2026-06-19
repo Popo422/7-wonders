@@ -1,183 +1,84 @@
+/* ── Design tokens ─────────────────────────────────────────────
+   "Antiquity" theme: deep slate canvas, warm gold accent, and
+   category colors that mirror the real 7 Wonders card borders. */
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+  /* Surfaces */
+  --bg: #0e1014;
+  --bg-2: #15181f;
+  --surface: rgba(255, 255, 255, 0.04);
+  --surface-2: rgba(255, 255, 255, 0.07);
+  --surface-hi: rgba(255, 255, 255, 0.1);
+  --border: rgba(255, 255, 255, 0.09);
+  --border-hi: rgba(255, 255, 255, 0.16);
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  /* Text */
+  --text: #eef1f6;
+  --text-dim: #9aa3b2;
+  --text-faint: #6b7283;
 
+  /* Brand / accent (gold) */
+  --gold: #d9b15a;
+  --gold-soft: #e7cd8e;
+  --gold-glow: rgba(217, 177, 90, 0.35);
+
+  /* Card category colors (match the board game) */
+  --c-civilian: #4a90d9;
+  --c-science: #4caf7d;
+  --c-military: #d9534f;
+  --c-commercial: #e0b13a;
+  --c-guild: #9b6bd4;
+  --c-coin: #c9a227;
+
+  --radius: 14px;
+  --radius-sm: 10px;
+  --shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  --font-display: "Cinzel", Georgia, serif;
+  --font-body: "Inter", system-ui, -apple-system, Segoe UI, sans-serif;
+
+  color-scheme: dark;
+  font-family: var(--font-body);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-html,
-body,
-#root{
-  height: 100%;
-  width: 100%;
+* {
+  box-sizing: border-box;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
 }
 
 body {
-  margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
-  min-height: 100dvh;
-}
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(217, 177, 90, 0.08), transparent 60%),
+    radial-gradient(900px 500px at 100% 100%, rgba(75, 130, 200, 0.06), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
 }
 
 button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
   cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
-}
-
-/* Game controls (Save, Load, Reset) */
-.game-controls {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.nav-btn {
-  padding: 10px 20px;
-  background-color: #3498db;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 1em;
-  transition: background-color 0.3s;
-}
-
-.nav-btn:hover {
-  background-color: #2980b9;
-}
-
-.nav-btn:focus {
-  outline: 2px solid #2980b9;
+:focus-visible {
+  outline: 2px solid var(--gold);
   outline-offset: 2px;
 }
 
-.nav-btn:disabled {
-  background-color: #95a5a6;
-  cursor: not-allowed;
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
-
-@media (prefers-color-scheme: dark) {
-  .nav-btn {
-    background-color: #1e90ff;
-  }
-  .nav-btn:hover {
-    background-color: #3498db;
-  }
-  .nav-btn:focus {
-    outline-color: #3498db;
-  }
-  .nav-btn:disabled {
-    background-color: #4b5e6a;
-  }
-}
-
-/* Coins input */
-.coins-input {
-  text-align: center;
-}
-
-.coins-input label {
-  display: block;
-  margin-bottom: 10px;
-  font-weight: bold;
-}
-
-.coins-input input {
-  padding: 10px;
-  width: 100px;
-  border: 1px solid #bdc3c7;
-  border-radius: 5px;
-  font-size: 1em;
-}
-
-.coins-input input:focus {
-  outline: 2px solid #3498db;
-  outline-offset: 2px;
-}
-
-.coins-input p {
-  font-size: 0.9em;
-  color: #7f8c8d;
-  margin-top: 10px;
-}
-
-@media (prefers-color-scheme: dark) {
-  .coins-input input {
-    background-color: #34495e;
-    border-color: #4b5e6a;
-    color: #e0e0e0;
-  }
-  .coins-input input:focus {
-    outline-color: #1e90ff;
-  }
-  .coins-input p {
-    color: #bdc3c7;
-  }
-}
-
-/* Score chart */
-.score-chart {
-  max-width: 400px;
-  margin: 20px auto;
-}
-
-@media (max-width: 600px) {
-  .score-chart {
-    max-width: 300px;
-  }
-  .nav-btn {
-    padding: 8px 15px;
-    font-size: 0.9em;
-  }
+::-webkit-scrollbar-thumb {
+  background: var(--border-hi);
+  border-radius: 8px;
 }
