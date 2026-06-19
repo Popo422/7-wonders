@@ -203,36 +203,72 @@ const WONDERS = [
 const SCIENCE_EMOJI = { compass: "🧭", gear: "⚙️", tablet: "📜" };
 
 /*
- * Stage-panel geometry on the board art.
- * Measured against the actual board images: panels are left-anchored, the
- * first starting at ~8.5% with a fixed pitch of ~27.7% and width ~26% of the
- * board. The slot index is fixed regardless of stage count, so a 2-stage board
- * (Colossus B) uses slots 0–1 and the panels still line up with the painting.
- *
- * `zoneRects(wonderId, side, count)` returns one {left,width} (in %) per stage.
- * `OVERRIDES` holds boards whose painted panels don't follow the default
- * (or, for gizah B, whose art only shows 3 panels for 4 logical stages).
+ * Stage-panel geometry on the board art — one rect [left, width, bottom, height]
+ * (all in % of the board image) per stage, measured by hand against each board.
+ * The A (day) sides share one left-anchored layout; the B (night) sides each
+ * spread their panels differently, so they're listed explicitly.
+ * gizah_B reuses the 3-panel day art for 4 logical stages, so its 4 zones are
+ * spread evenly across the strip.
  */
-const PANEL_FIRST = 8.5;
-const PANEL_PITCH = 27.7;
-const PANEL_WIDTH = 25;
-
-const OVERRIDES = {
-  // gizah B art is the 3-panel day board; spread 4 zones evenly across the strip.
+const A_LAYOUT = [
+  [8, 28, 1, 22],
+  [37, 27, 1, 22],
+  [65, 28, 1, 22],
+];
+const ZONE_RECTS = {
+  colossus_A: A_LAYOUT,
+  alexandria_A: A_LAYOUT,
+  ephesos_A: A_LAYOUT,
+  babylon_A: A_LAYOUT,
+  olympia_A: A_LAYOUT,
+  halikarnassos_A: A_LAYOUT,
+  gizah_A: A_LAYOUT,
+  colossus_B: [
+    [7, 27, 2, 21],
+    [38, 26, 2, 21],
+  ],
+  alexandria_B: [
+    [6, 23, 2, 20],
+    [44, 22, 2, 20],
+    [80, 19, 2, 20],
+  ],
+  ephesos_B: [
+    [8, 24, 2, 21],
+    [40, 23, 2, 21],
+    [71, 24, 2, 21],
+  ],
+  babylon_B: [
+    [8, 21, 2, 21],
+    [45, 21, 2, 21],
+    [78, 21, 2, 21],
+  ],
+  olympia_B: [
+    [8, 21, 2, 21],
+    [42, 20, 2, 21],
+    [80, 19, 2, 21],
+  ],
+  halikarnassos_B: [
+    [8, 22, 2, 21],
+    [42, 21, 2, 21],
+    [72, 23, 2, 21],
+  ],
   gizah_B: [
-    { left: 8.5, width: 19 },
-    { left: 30, width: 19 },
-    { left: 51.5, width: 19 },
-    { left: 73, width: 19 },
+    [8, 18, 1, 22],
+    [31, 18, 1, 22],
+    [54, 18, 1, 22],
+    [76, 18, 1, 22],
   ],
 };
 
 const zoneRects = (wonderId, side, count) => {
-  const key = `${wonderId}_${side}`;
-  if (OVERRIDES[key]) return OVERRIDES[key];
+  const rects = ZONE_RECTS[`${wonderId}_${side}`];
+  if (rects) return rects.map(([left, width, bottom, height]) => ({ left, width, bottom, height }));
+  // Fallback: evenly tile (should not happen for base game).
   return Array.from({ length: count }, (_, i) => ({
-    left: PANEL_FIRST + i * PANEL_PITCH,
-    width: PANEL_WIDTH,
+    left: 8 + (i * 84) / count,
+    width: 84 / count - 2,
+    bottom: 2,
+    height: 21,
   }));
 };
 
@@ -636,7 +672,12 @@ function App() {
                           <button
                             key={n}
                             className={`stage-zone ${done ? "done" : ""} ${next ? "next" : ""}`}
-                            style={{ left: `${r.left}%`, width: `${r.width}%` }}
+                            style={{
+                              left: `${r.left}%`,
+                              width: `${r.width}%`,
+                              bottom: `${r.bottom}%`,
+                              height: `${r.height}%`,
+                            }}
                             onClick={() => isActive && setStageProgress(n)}
                             tabIndex={isActive ? 0 : -1}
                             aria-pressed={done}

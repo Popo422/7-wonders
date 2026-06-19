@@ -260,8 +260,7 @@ h3 {
 }
 .stage-zone {
   position: absolute;
-  bottom: 4%;
-  height: 26%;
+  /* left / width / bottom / height set inline per board (measured per panel) */
   display: grid;
   place-items: center;
   border: 2px solid transparent;
