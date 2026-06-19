@@ -252,52 +252,74 @@ h3 {
   user-select: none;
 }
 
-/* Stage hotspots trace the painted panels along the bottom band.
-   The panels occupy roughly the bottom 8%–30% of the board height. */
-.stage-zones {
-  position: absolute;
-  inset: 0;
+/* Stage selector strip — sits below the board, always perfectly aligned */
+.stage-strip {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: min(620px, 100%);
+  margin: 0 auto;
 }
-.stage-zone {
-  position: absolute;
-  /* left / width / bottom / height set inline per board (measured per panel) */
-  display: grid;
-  place-items: center;
-  border: 2px solid transparent;
-  border-radius: 10px;
-  background: transparent;
+.stage-tile {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 92px;
+  max-width: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.7rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
 }
-.stage-zone:hover {
-  background: rgba(217, 177, 90, 0.12);
-  border-color: rgba(217, 177, 90, 0.55);
+.stage-tile:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-hi);
 }
-.stage-zone.done {
-  background: rgba(217, 177, 90, 0.22);
+.stage-tile.done {
   border-color: var(--gold);
-  box-shadow: inset 0 0 22px rgba(217, 177, 90, 0.45), 0 0 16px var(--gold-glow);
+  background: linear-gradient(180deg, rgba(217, 177, 90, 0.18), rgba(217, 177, 90, 0.05));
+  box-shadow: 0 5px 16px var(--gold-glow);
 }
-.stage-zone.next {
-  border-color: rgba(255, 255, 255, 0.7);
+.stage-tile.next {
   border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.45);
   animation: pulse 1.8s ease-in-out infinite;
 }
-.zone-check {
-  position: absolute;
-  top: -10px;
-  right: -8px;
-  width: 22px;
-  height: 22px;
+.tile-badge {
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   font-size: 0.8rem;
-  font-weight: 900;
-  color: #1a1206;
+  font-weight: 800;
+  background: var(--surface-hi);
+  border: 1px solid var(--border-hi);
+  color: var(--text-dim);
+}
+.stage-tile.done .tile-badge {
   background: var(--gold);
-  border: 2px solid #fff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  color: #1a1206;
+  border-color: #fff;
+}
+.tile-vp {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--gold-soft);
+}
+.tile-note {
+  font-size: 0.62rem;
+  color: var(--text-faint);
+  text-align: center;
+  line-height: 1.15;
 }
 .board-hint {
   text-align: center;
@@ -321,58 +343,104 @@ h3 {
   .board-flip-inner {
     transition: none;
   }
-  .stage-zone.next {
+  .stage-tile.next {
     animation: none;
   }
 }
 
-/* ── Card grid ──────────────────────────────────────────────── */
+/* ── Card grid (real card art) ──────────────────────────────── */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 0.6rem;
 }
 
 .card {
-  border: 1px solid var(--border);
+  border: 2px solid transparent;
   border-radius: var(--radius-sm);
-  padding: 0.55rem 0.4rem;
   cursor: pointer;
   background: var(--surface);
-  text-align: center;
-  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+  overflow: hidden;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.25rem;
 }
 .card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   border-color: var(--border-hi);
-  background: var(--surface-2);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
 }
 .card.selected {
   border-color: var(--gold);
-  background: linear-gradient(180deg, rgba(217, 177, 90, 0.18), rgba(217, 177, 90, 0.05));
-  box-shadow: 0 5px 16px var(--gold-glow);
+  box-shadow: 0 6px 20px var(--gold-glow);
 }
-.card-icon {
-  font-size: 1.5rem;
-  line-height: 1;
+
+.card-art {
+  position: relative;
+  width: 100%;
+  /* real 7 Wonders cards are ~2:3 portrait */
+  aspect-ratio: 2 / 3;
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+}
+.card-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.card-emoji {
+  display: none;
+  font-size: 2rem;
+}
+.card-art.noart .card-emoji {
+  display: block;
+}
+.card.selected .card-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(217, 177, 90, 0.22);
+}
+.card-check {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.8rem;
+  font-weight: 900;
+  color: #1a1206;
+  background: var(--gold);
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+.card-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+  padding: 0.35rem 0.45rem;
+  background: var(--bg-2);
 }
 .card-info h4 {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 600;
   color: var(--text);
-  line-height: 1.15;
+  line-height: 1.1;
+  text-align: left;
 }
 .points {
-  display: inline-block;
-  margin-top: 0.15rem;
+  flex-shrink: 0;
   font-size: 0.62rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   color: var(--text-dim);
   background: var(--surface-hi);
   padding: 0.08rem 0.4rem;

@@ -202,76 +202,6 @@ const WONDERS = [
 
 const SCIENCE_EMOJI = { compass: "🧭", gear: "⚙️", tablet: "📜" };
 
-/*
- * Stage-panel geometry on the board art — one rect [left, width, bottom, height]
- * (all in % of the board image) per stage, measured by hand against each board.
- * The A (day) sides share one left-anchored layout; the B (night) sides each
- * spread their panels differently, so they're listed explicitly.
- * gizah_B reuses the 3-panel day art for 4 logical stages, so its 4 zones are
- * spread evenly across the strip.
- */
-const A_LAYOUT = [
-  [8, 28, 1, 22],
-  [37, 27, 1, 22],
-  [65, 28, 1, 22],
-];
-const ZONE_RECTS = {
-  colossus_A: A_LAYOUT,
-  alexandria_A: A_LAYOUT,
-  ephesos_A: A_LAYOUT,
-  babylon_A: A_LAYOUT,
-  olympia_A: A_LAYOUT,
-  halikarnassos_A: A_LAYOUT,
-  gizah_A: A_LAYOUT,
-  colossus_B: [
-    [7, 27, 2, 21],
-    [38, 26, 2, 21],
-  ],
-  alexandria_B: [
-    [6, 23, 2, 20],
-    [44, 22, 2, 20],
-    [80, 19, 2, 20],
-  ],
-  ephesos_B: [
-    [8, 24, 2, 21],
-    [40, 23, 2, 21],
-    [71, 24, 2, 21],
-  ],
-  babylon_B: [
-    [8, 21, 2, 21],
-    [45, 21, 2, 21],
-    [78, 21, 2, 21],
-  ],
-  olympia_B: [
-    [8, 21, 2, 21],
-    [42, 20, 2, 21],
-    [80, 19, 2, 21],
-  ],
-  halikarnassos_B: [
-    [8, 22, 2, 21],
-    [42, 21, 2, 21],
-    [72, 23, 2, 21],
-  ],
-  gizah_B: [
-    [8, 18, 1, 22],
-    [31, 18, 1, 22],
-    [54, 18, 1, 22],
-    [76, 18, 1, 22],
-  ],
-};
-
-const zoneRects = (wonderId, side, count) => {
-  const rects = ZONE_RECTS[`${wonderId}_${side}`];
-  if (rects) return rects.map(([left, width, bottom, height]) => ({ left, width, bottom, height }));
-  // Fallback: evenly tile (should not happen for base game).
-  return Array.from({ length: count }, (_, i) => ({
-    left: 8 + (i * 84) / count,
-    width: 84 / count - 2,
-    bottom: 2,
-    height: 21,
-  }));
-};
-
 class ErrorBoundary extends Component {
   state = { hasError: false };
   static getDerivedStateFromError() {
@@ -285,6 +215,17 @@ class ErrorBoundary extends Component {
   }
 }
 
+const cardArt = (id) => `${import.meta.env.BASE_URL}cards/${id}.png`;
+
+const pointsLabel = (card) => {
+  if (card.points === "scaling") return "scaling";
+  if (card.symbol) return SCIENCE_EMOJI[card.symbol];
+  if (card.points === "science") return "science";
+  if (card.shields) return `${card.shields} ⚔`;
+  if (card.points) return `${card.points} pts`;
+  return "—";
+};
+
 const Card = memo(({ card, category, selected, toggleCard, hint }) => (
   <div
     className={`card ${selected ? "selected" : ""}`}
@@ -294,23 +235,28 @@ const Card = memo(({ card, category, selected, toggleCard, hint }) => (
     onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), toggleCard(card, category))}
     aria-pressed={!!selected}
     aria-label={`${card.name}${selected ? ", selected" : ""}`}
+    title={hint || card.name}
   >
-    <div className="card-icon">{card.icon}</div>
+    <div className="card-art">
+      <img
+        src={cardArt(card.id)}
+        alt=""
+        loading="lazy"
+        draggable="false"
+        onError={(e) => {
+          // Fall back to the emoji tile if no art is bundled for this card.
+          e.currentTarget.style.display = "none";
+          e.currentTarget.parentElement.classList.add("noart");
+        }}
+      />
+      <span className="card-emoji" aria-hidden="true">
+        {card.icon}
+      </span>
+      {selected && <span className="card-check" aria-hidden="true">✓</span>}
+    </div>
     <div className="card-info">
       <h4>{card.name}</h4>
-      <span className="points" title={hint || ""}>
-        {card.points === "scaling"
-          ? "scaling"
-          : card.points === "science" || card.symbol
-          ? card.symbol
-            ? SCIENCE_EMOJI[card.symbol]
-            : "science"
-          : card.shields
-          ? `${card.shields} ⚔`
-          : card.points
-          ? `${card.points} pts`
-          : "—"}
-      </span>
+      <span className="points">{pointsLabel(card)}</span>
     </div>
   </div>
 ));
@@ -645,60 +591,48 @@ function App() {
           </button>
         </div>
 
-        {/* Interactive flip-board: the art IS the stage selector. */}
+        {/* Flip-board art (display only) flips between Day / Night. */}
         <div className={`board-flip ${side === "B" ? "flipped" : ""}`}>
           <div className="board-flip-inner">
-            {["A", "B"].map((face) => {
-              const faceStages = wonder.stages[face];
-              const isActive = face === side;
-              return (
-                <div className={`board-face ${face === "B" ? "back" : "front"}`} key={face} aria-hidden={!isActive}>
-                  <img
-                    src={boardArt(wonder.id, face)}
-                    alt={`${wonder.name} board, side ${face}`}
-                    draggable="false"
-                    onError={(e) => (e.currentTarget.style.opacity = 0)}
-                  />
-                  {/* Stage hotspots positioned over the painted panels */}
-                  <div className="stage-zones">
-                    {(() => {
-                      const rects = zoneRects(wonder.id, face, faceStages.length);
-                      return faceStages.map((stage, i) => {
-                        const n = i + 1;
-                        const done = isActive && n <= built;
-                        const next = isActive && n === built + 1;
-                        const r = rects[i];
-                        return (
-                          <button
-                            key={n}
-                            className={`stage-zone ${done ? "done" : ""} ${next ? "next" : ""}`}
-                            style={{
-                              left: `${r.left}%`,
-                              width: `${r.width}%`,
-                              bottom: `${r.bottom}%`,
-                              height: `${r.height}%`,
-                            }}
-                            onClick={() => isActive && setStageProgress(n)}
-                            tabIndex={isActive ? 0 : -1}
-                            aria-pressed={done}
-                            aria-label={`Stage ${n}${stage.vp ? `, ${stage.vp} victory points` : ""}${
-                              done ? ", completed" : ""
-                            }`}
-                          >
-                            {done && <span className="zone-check">✓</span>}
-                          </button>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
-              );
-            })}
+            {["A", "B"].map((face) => (
+              <div className={`board-face ${face === "B" ? "back" : "front"}`} key={face} aria-hidden={face !== side}>
+                <img
+                  src={boardArt(wonder.id, face)}
+                  alt={`${wonder.name} board, side ${face}`}
+                  draggable="false"
+                  onError={(e) => (e.currentTarget.style.opacity = 0)}
+                />
+              </div>
+            ))}
           </div>
         </div>
 
+        {/* Aligned stage-tile strip — the actual selector (always perfectly placed). */}
+        <div className="stage-strip" role="group" aria-label="Wonder stages">
+          {currentStages.map((stage, i) => {
+            const n = i + 1;
+            const done = n <= built;
+            const next = n === built + 1;
+            return (
+              <button
+                key={n}
+                className={`stage-tile ${done ? "done" : ""} ${next ? "next" : ""}`}
+                onClick={() => setStageProgress(n)}
+                aria-pressed={done}
+                aria-label={`Stage ${n}${stage.vp ? `, ${stage.vp} victory points` : ""}${done ? ", completed" : ""}`}
+              >
+                <span className="tile-badge">{done ? "✓" : n}</span>
+                <span className="tile-vp">{stage.vp ? `${stage.vp} VP` : "—"}</span>
+                {(stage.coins || stage.note) && (
+                  <span className="tile-note">{stage.note || `+${stage.coins} coins`}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
         <p className="board-hint">
-          Tap a stage on the board to mark it built (everything up to it lights up). Tap the last one again to undo.
+          Tap a stage to mark it built (everything up to it lights up). Tap the last one again to undo.
         </p>
 
         {currentStages.some((s) => s.science) && (
