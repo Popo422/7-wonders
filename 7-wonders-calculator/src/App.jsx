@@ -91,7 +91,9 @@ const CARDS = {
   ],
 };
 
-const ART_BASE = "https://static.wikia.nocookie.net/7-wonders/images";
+// Local board art lives in /public/wonders/<id>_<side>.webp (downloaded from
+// the 7 Wonders wiki, art © Miguel Coimbra / Repos Production).
+const boardArt = (wonderId, side) => `${import.meta.env.BASE_URL}wonders/${wonderId}_${side}.webp`;
 
 /*
  * Wonders modeled per stage. Each stage object may carry:
@@ -108,7 +110,6 @@ const WONDERS = [
     name: "Rhódos",
     sub: "The Colossus of Rhodes",
     icon: "🗿",
-    art: { A: `${ART_BASE}/9/95/Rhodos_day.png`, B: `${ART_BASE}/1/1f/Rhodos_night.png` },
     stages: {
       A: [{ vp: 3 }, { shields: 2, note: "+2 shields" }, { vp: 7 }],
       B: [
@@ -122,7 +123,6 @@ const WONDERS = [
     name: "Alexandria",
     sub: "The Lighthouse of Alexandria",
     icon: "🗼",
-    art: { A: `${ART_BASE}/1/1d/Alexandria_day.png`, B: `${ART_BASE}/6/68/Alexandria_night.png` },
     stages: {
       A: [{ vp: 3 }, { note: "Free raw material each turn" }, { vp: 7 }],
       B: [
@@ -137,7 +137,6 @@ const WONDERS = [
     name: "Éphesos",
     sub: "The Temple of Artemis",
     icon: "🏛️",
-    art: { A: `${ART_BASE}/9/93/Ephesos_day.png`, B: `${ART_BASE}/7/7e/Ephesos_night.png` },
     stages: {
       A: [{ vp: 3 }, { coins: 9, note: "+9 coins" }, { vp: 7 }],
       B: [
@@ -152,7 +151,6 @@ const WONDERS = [
     name: "Babylon",
     sub: "The Hanging Gardens",
     icon: "🌳",
-    art: { A: `${ART_BASE}/c/cd/Babylon_day.png`, B: `${ART_BASE}/9/96/Babylon_night.png` },
     stages: {
       A: [{ vp: 3 }, { science: true, note: "+1 science symbol of choice" }, { vp: 7 }],
       B: [
@@ -167,7 +165,6 @@ const WONDERS = [
     name: "Olympía",
     sub: "The Statue of Zeus",
     icon: "🏟️",
-    art: { A: `${ART_BASE}/d/dd/Olympia_day.png`, B: `${ART_BASE}/b/b8/Olympia_night.png` },
     stages: {
       A: [{ vp: 3 }, { note: "Build 1 free structure per Age" }, { vp: 7 }],
       B: [
@@ -182,7 +179,6 @@ const WONDERS = [
     name: "Halikarnassós",
     sub: "The Mausoleum",
     icon: "⚱️",
-    art: { A: `${ART_BASE}/6/65/Halikarnassos_day.png`, B: `${ART_BASE}/c/cc/Halikarnassos_night.png` },
     stages: {
       A: [{ vp: 3 }, { note: "Build a discarded card free" }, { vp: 7 }],
       B: [
@@ -197,7 +193,6 @@ const WONDERS = [
     name: "Gizah",
     sub: "The Great Pyramid",
     icon: "🔺",
-    art: { A: `${ART_BASE}/7/76/Gizah_day.png`, B: `${ART_BASE}/7/76/Gizah_day.png` },
     stages: {
       A: [{ vp: 3 }, { vp: 5 }, { vp: 7 }],
       B: [{ vp: 3 }, { vp: 5 }, { vp: 5 }, { vp: 7 }],
@@ -207,7 +202,39 @@ const WONDERS = [
 
 const SCIENCE_EMOJI = { compass: "🧭", gear: "⚙️", tablet: "📜" };
 
-const scaledArt = (url) => `${url.replace("/revision/latest", "")}/revision/latest/scale-to-width-down/500`;
+/*
+ * Stage-panel geometry on the board art.
+ * Measured against the actual board images: panels are left-anchored, the
+ * first starting at ~8.5% with a fixed pitch of ~27.7% and width ~26% of the
+ * board. The slot index is fixed regardless of stage count, so a 2-stage board
+ * (Colossus B) uses slots 0–1 and the panels still line up with the painting.
+ *
+ * `zoneRects(wonderId, side, count)` returns one {left,width} (in %) per stage.
+ * `OVERRIDES` holds boards whose painted panels don't follow the default
+ * (or, for gizah B, whose art only shows 3 panels for 4 logical stages).
+ */
+const PANEL_FIRST = 8.5;
+const PANEL_PITCH = 27.7;
+const PANEL_WIDTH = 25;
+
+const OVERRIDES = {
+  // gizah B art is the 3-panel day board; spread 4 zones evenly across the strip.
+  gizah_B: [
+    { left: 8.5, width: 19 },
+    { left: 30, width: 19 },
+    { left: 51.5, width: 19 },
+    { left: 73, width: 19 },
+  ],
+};
+
+const zoneRects = (wonderId, side, count) => {
+  const key = `${wonderId}_${side}`;
+  if (OVERRIDES[key]) return OVERRIDES[key];
+  return Array.from({ length: count }, (_, i) => ({
+    left: PANEL_FIRST + i * PANEL_PITCH,
+    width: PANEL_WIDTH,
+  }));
+};
 
 class ErrorBoundary extends Component {
   state = { hasError: false };
@@ -321,18 +348,6 @@ function App() {
 
   const setSide = (side) =>
     setGameData((prev) => ({ ...prev, wonderSide: side, wonderStages: [] }));
-
-  const toggleWonderStage = (stage) => {
-    setGameData((prev) => {
-      const built = prev.wonderStages.includes(stage);
-      // Stages must be contiguous from stage 1 (rulebook: built left to right).
-      if (built) {
-        return { ...prev, wonderStages: prev.wonderStages.filter((s) => s < stage) };
-      }
-      const all = Array.from({ length: stage }, (_, i) => i + 1);
-      return { ...prev, wonderStages: all };
-    });
-  };
 
   const toggleCard = (card, category) => {
     const key = `${category}Cards`;
@@ -567,57 +582,93 @@ function App() {
     </div>
   );
 
-  const renderStages = () => (
-    <div className="step-content">
-      <h2>Wonder Stages — {gameData.wonder?.name}</h2>
-      <div className="wonder-board">
-        <img
-          src={scaledArt(gameData.wonder.art[gameData.wonderSide])}
-          alt={`${gameData.wonder.name} board, side ${gameData.wonderSide}`}
-          loading="lazy"
-          onError={(e) => (e.currentTarget.style.display = "none")}
-        />
-      </div>
-      <div className="wonder-side-selector">
-        <button className={`side-btn ${gameData.wonderSide === "A" ? "active" : ""}`} onClick={() => setSide("A")}>
-          Side A (Day)
-        </button>
-        <button className={`side-btn ${gameData.wonderSide === "B" ? "active" : ""}`} onClick={() => setSide("B")}>
-          Side B (Night)
-        </button>
-      </div>
-      {currentStages.some((s) => s.science) && (
-        <p className="muted" style={{ textAlign: "center", marginTop: 0 }}>
-          🔬 A stage of this wonder grants a science symbol — once built, you'll pick which one on the
-          <strong> Science Bonus</strong> step, and it's added to your science score.
+  // Clicking a stage zone sets completed stages to a contiguous 1..target.
+  // Re-clicking the highest completed zone steps the count back by one.
+  const setStageProgress = (n) => {
+    setGameData((prev) => {
+      const built = prev.wonderStages.length;
+      const target = n <= built ? n - 1 : n; // re-click highest → undo it
+      return { ...prev, wonderStages: Array.from({ length: target }, (_, i) => i + 1) };
+    });
+  };
+
+  const renderStages = () => {
+    const wonder = gameData.wonder;
+    const side = gameData.wonderSide;
+    const built = gameData.wonderStages.length; // contiguous from 1
+    return (
+      <div className="step-content">
+        <h2>Wonder Stages — {wonder.name}</h2>
+
+        <div className="wonder-side-selector">
+          <button className={`side-btn ${side === "A" ? "active" : ""}`} onClick={() => setSide("A")}>
+            ☀ Side A · Day
+          </button>
+          <button className={`side-btn ${side === "B" ? "active" : ""}`} onClick={() => setSide("B")}>
+            ☾ Side B · Night
+          </button>
+        </div>
+
+        {/* Interactive flip-board: the art IS the stage selector. */}
+        <div className={`board-flip ${side === "B" ? "flipped" : ""}`}>
+          <div className="board-flip-inner">
+            {["A", "B"].map((face) => {
+              const faceStages = wonder.stages[face];
+              const isActive = face === side;
+              return (
+                <div className={`board-face ${face === "B" ? "back" : "front"}`} key={face} aria-hidden={!isActive}>
+                  <img
+                    src={boardArt(wonder.id, face)}
+                    alt={`${wonder.name} board, side ${face}`}
+                    draggable="false"
+                    onError={(e) => (e.currentTarget.style.opacity = 0)}
+                  />
+                  {/* Stage hotspots positioned over the painted panels */}
+                  <div className="stage-zones">
+                    {(() => {
+                      const rects = zoneRects(wonder.id, face, faceStages.length);
+                      return faceStages.map((stage, i) => {
+                        const n = i + 1;
+                        const done = isActive && n <= built;
+                        const next = isActive && n === built + 1;
+                        const r = rects[i];
+                        return (
+                          <button
+                            key={n}
+                            className={`stage-zone ${done ? "done" : ""} ${next ? "next" : ""}`}
+                            style={{ left: `${r.left}%`, width: `${r.width}%` }}
+                            onClick={() => isActive && setStageProgress(n)}
+                            tabIndex={isActive ? 0 : -1}
+                            aria-pressed={done}
+                            aria-label={`Stage ${n}${stage.vp ? `, ${stage.vp} victory points` : ""}${
+                              done ? ", completed" : ""
+                            }`}
+                          >
+                            {done && <span className="zone-check">✓</span>}
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <p className="board-hint">
+          Tap a stage on the board to mark it built (everything up to it lights up). Tap the last one again to undo.
         </p>
-      )}
-      <div className="wonder-stages">
-        <h3>Tap each stage you completed (in order)</h3>
-        {currentStages.map((stage, index) => {
-          const n = index + 1;
-          const built = gameData.wonderStages.includes(n);
-          return (
-            <div
-              key={n}
-              className={`stage-card ${built ? "selected" : ""}`}
-              onClick={() => toggleWonderStage(n)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), toggleWonderStage(n))}
-              aria-pressed={built}
-            >
-              <div className="stage-header">Stage {n}</div>
-              <div className="stage-points">{stage.vp ? `${stage.vp} VP` : "—"}</div>
-              {(stage.coins || stage.note) && (
-                <div className="stage-note">{stage.note || `+${stage.coins} coins`}</div>
-              )}
-            </div>
-          );
-        })}
+
+        {currentStages.some((s) => s.science) && (
+          <p className="muted board-science-note">
+            🔬 This wonder grants a science symbol — you'll choose which on the <strong>Science Bonus</strong> step,
+            and it's added to your science score.
+          </p>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderCardSelection = (category, cards, title) => (
     <div className="step-content">
