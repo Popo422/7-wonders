@@ -16,13 +16,13 @@ ChartJS.register(ArcElement, Tooltip, Legend);
 const CARDS = {
   // Blue — score victory points directly.
   civilian: [
-    { id: "altar", name: "Altar", icon: "⛪", points: 2, age: 1 },
-    { id: "theater", name: "Theater", icon: "🎭", points: 2, age: 1 },
+    { id: "altar", name: "Altar", icon: "⛪", points: 3, age: 1 },
+    { id: "theater", name: "Theater", icon: "🎭", points: 3, age: 1 },
     { id: "baths", name: "Baths", icon: "🛁", points: 3, age: 1 },
     { id: "pawnshop", name: "Pawnshop", icon: "🏦", points: 3, age: 1 },
     { id: "courthouse", name: "Courthouse", icon: "⚖️", points: 4, age: 2 },
     { id: "statue", name: "Statue", icon: "🗿", points: 4, age: 2 },
-    { id: "temple", name: "Temple", icon: "🏛️", points: 3, age: 2 },
+    { id: "temple", name: "Temple", icon: "🏛️", points: 4, age: 2 },
     { id: "aqueduct", name: "Aqueduct", icon: "💧", points: 5, age: 2 },
     { id: "gardens", name: "Gardens", icon: "🌺", points: 5, age: 3 },
     { id: "senate", name: "Senate", icon: "🏛️", points: 6, age: 3 },
@@ -68,7 +68,7 @@ const CARDS = {
     { id: "traders", name: "Traders Guild", icon: "💰", points: "scaling" },
     { id: "philosophers", name: "Philosophers Guild", icon: "📚", points: "scaling" },
     { id: "spies", name: "Spies Guild", icon: "🕵️", points: "scaling" },
-    { id: "strategists", name: "Strategists Guild", icon: "⚔️", points: "scaling" },
+    { id: "decorators", name: "Decorators Guild", icon: "🎨", points: "decorators" },
     { id: "shipowners", name: "Shipowners Guild", icon: "⛵", points: "scaling" },
     { id: "scientists", name: "Scientists Guild", icon: "🧪", points: "science" },
     { id: "magistrates", name: "Magistrates Guild", icon: "⚖️", points: "scaling" },
@@ -166,7 +166,7 @@ const WONDERS = [
     sub: "The Statue of Zeus",
     icon: "🏟️",
     stages: {
-      A: [{ vp: 3 }, { note: "Build 1 free structure per Age" }, { vp: 7 }],
+      A: [{ vp: 3 }, { note: "Build the 1st card of each colour free" }, { vp: 7 }],
       B: [
         { note: "Buy raw materials for 1 coin" },
         { vp: 5 },
@@ -202,6 +202,19 @@ const WONDERS = [
 
 const SCIENCE_EMOJI = { compass: "🧭", gear: "⚙️", tablet: "📜" };
 
+// Real symbol/token art in /public/icons/ (from the 7 Wonders wiki).
+const iconUrl = (name) => `${import.meta.env.BASE_URL}icons/${name}.png`;
+const SymbolIcon = ({ name, size = 18, alt = "" }) => (
+  <img
+    src={iconUrl(name)}
+    alt={alt}
+    width={size}
+    height={size}
+    className="sym-icon"
+    onError={(e) => (e.currentTarget.style.display = "none")}
+  />
+);
+
 class ErrorBoundary extends Component {
   state = { hasError: false };
   static getDerivedStateFromError() {
@@ -219,6 +232,7 @@ const cardArt = (id) => `${import.meta.env.BASE_URL}cards/${id}.png`;
 
 const pointsLabel = (card) => {
   if (card.points === "scaling") return "scaling";
+  if (card.points === "decorators") return "7 if full";
   if (card.symbol) return SCIENCE_EMOJI[card.symbol];
   if (card.points === "science") return "science";
   if (card.shields) return `${card.shields} ⚔`;
@@ -256,7 +270,9 @@ const Card = memo(({ card, category, selected, toggleCard, hint }) => (
     </div>
     <div className="card-info">
       <h4>{card.name}</h4>
-      <span className="points">{pointsLabel(card)}</span>
+      <span className="points">
+        {card.symbol ? <SymbolIcon name={card.symbol} size={16} alt={card.symbol} /> : pointsLabel(card)}
+      </span>
     </div>
   </div>
 ));
@@ -469,9 +485,12 @@ function App() {
       return s + (c.points || 0);
     }, 0);
 
-    // Guilds: scaling cards. Scientists guild scores via the science block above.
+    // Guilds. Scientists scores via the science block; Decorators is a flat 7
+    // VP if every stage of your wonder is built; the rest are neighbor counts.
+    const allStagesBuilt = currentStages.length > 0 && gameData.wonderStages.length === currentStages.length;
     b.guilds = gameData.guildsCards.reduce((s, c) => {
       if (c.id === "scientists") return s; // already in science
+      if (c.id === "decorators") return s + (allStagesBuilt ? 7 : 0);
       return s + (gameData.neighborInteractions[c.id] || 0);
     }, 0);
 
@@ -555,7 +574,21 @@ function App() {
             aria-pressed={gameData.wonder?.id === wonder.id}
             aria-label={`${wonder.name} — ${wonder.sub}`}
           >
-            <div className="wonder-icon">{wonder.icon}</div>
+            <div className="wonder-thumb">
+              <img
+                src={boardArt(wonder.id, "A")}
+                alt=""
+                loading="lazy"
+                draggable="false"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                  e.currentTarget.parentElement.classList.add("noart");
+                }}
+              />
+              <span className="wonder-thumb-emoji" aria-hidden="true">
+                {wonder.icon}
+              </span>
+            </div>
             <h3>{wonder.name}</h3>
             <span className="wonder-sub">{wonder.sub}</span>
           </div>
@@ -687,7 +720,13 @@ function App() {
             category="guilds"
             selected={gameData.guildsCards.some((c) => c.id === card.id)}
             toggleCard={toggleCard}
-            hint={card.points === "scaling" ? getPrompt(card.id).q : "Adds a science symbol of choice"}
+            hint={
+              card.points === "scaling"
+                ? getPrompt(card.id).q
+                : card.id === "decorators"
+                ? "7 VP if all your wonder stages are built (auto-detected)"
+                : "Adds a science symbol of choice"
+            }
           />
         ))}
       </div>
@@ -705,9 +744,15 @@ function App() {
           {hasScientistsGuild ? "(Scientists Guild)" : ""}.
         </p>
         <div className="current-science">
-          <span>🧭 {scienceCounts.compass}</span>
-          <span>⚙️ {scienceCounts.gear}</span>
-          <span>📜 {scienceCounts.tablet}</span>
+          <span>
+            <SymbolIcon name="compass" size={22} alt="compass" /> {scienceCounts.compass}
+          </span>
+          <span>
+            <SymbolIcon name="gear" size={22} alt="gear" /> {scienceCounts.gear}
+          </span>
+          <span>
+            <SymbolIcon name="tablet" size={22} alt="tablet" /> {scienceCounts.tablet}
+          </span>
         </div>
         <p className="muted">Choose which symbol to add (optimal pre-selected):</p>
         <div className="science-selector">
@@ -717,14 +762,14 @@ function App() {
               className={`science-btn ${gameData.wonderScience === s ? "active" : ""}`}
               onClick={() => setGameData((prev) => ({ ...prev, wonderScience: s }))}
             >
-              {SCIENCE_EMOJI[s]} {s}
+              <SymbolIcon name={s} size={20} alt="" /> {s}
             </button>
           ))}
         </div>
         {optimalSymbol && (
           <div className="optimal-choice">
             <h3>
-              Optimal: {SCIENCE_EMOJI[optimalSymbol]} {optimalSymbol}
+              Optimal: <SymbolIcon name={optimalSymbol} size={20} alt="" /> {optimalSymbol}
             </h3>
             <p>Maximizes science points given your current green cards.</p>
           </div>
