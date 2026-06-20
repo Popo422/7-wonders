@@ -33,14 +33,17 @@ const CARDS = {
   // Yellow — most are coin/production effects; only a few Age III cards score
   // end-game VP. `points` (flat VP) or `coinsPer`/`vpPer` neighbor-style entries.
   commercial: [
-    { id: "tavern", name: "Tavern", icon: "🍺", points: 0, age: 1 },
-    { id: "easttrading", name: "East Trading Post", icon: "🏪", points: 0, age: 1 },
-    { id: "westtrading", name: "West Trading Post", icon: "🏪", points: 0, age: 1 },
-    { id: "marketplace", name: "Marketplace", icon: "🏪", points: 0, age: 1 },
-    { id: "caravansery", name: "Caravansery", icon: "🐪", points: 0, age: 2 },
-    { id: "forum", name: "Forum", icon: "🏟️", points: 0, age: 2 },
-    { id: "vineyard", name: "Vineyard", icon: "🍇", points: 0, age: 2 },
-    { id: "bazaar", name: "Bazaar", icon: "🏺", points: 0, age: 2 },
+    // Most yellow cards give COINS or trade discounts, not victory points. Their
+    // coins are captured by the total you enter on the Coins step (no per-card
+    // prompt, to avoid double-counting). `note` is shown to explain this.
+    { id: "tavern", name: "Tavern", icon: "🍺", points: 0, age: 1, note: "+5 coins" },
+    { id: "easttrading", name: "East Trading Post", icon: "🏪", points: 0, age: 1, note: "Trade discount" },
+    { id: "westtrading", name: "West Trading Post", icon: "🏪", points: 0, age: 1, note: "Trade discount" },
+    { id: "marketplace", name: "Marketplace", icon: "🏪", points: 0, age: 1, note: "Trade discount" },
+    { id: "caravansery", name: "Caravansery", icon: "🐪", points: 0, age: 2, note: "Produces a resource" },
+    { id: "forum", name: "Forum", icon: "🏟️", points: 0, age: 2, note: "Produces a good" },
+    { id: "vineyard", name: "Vineyard", icon: "🍇", points: 0, age: 2, note: "Coins per brown card" },
+    { id: "bazaar", name: "Bazaar", icon: "🏺", points: 0, age: 2, note: "Coins per gray card" },
     { id: "haven", name: "Haven", icon: "⚓", points: "scaling", age: 3 },
     { id: "lighthouse", name: "Lighthouse", icon: "🗼", points: "scaling", age: 3 },
     { id: "chamber", name: "Chamber of Commerce", icon: "💰", points: "scaling", age: 3 },
@@ -237,6 +240,8 @@ const pointsLabel = (card) => {
   if (card.points === "science") return "science";
   if (card.shields) return `${card.shields} ⚔`;
   if (card.points) return `${card.points} pts`;
+  // Coin / trade / production card (no direct VP) — show a short tag.
+  if (card.note) return /coin/i.test(card.note) ? "coins" : "effect";
   return "—";
 };
 
@@ -678,9 +683,10 @@ function App() {
     );
   };
 
-  const renderCardSelection = (category, cards, title) => (
+  const renderCardSelection = (category, cards, title, subtitle) => (
     <div className="step-content">
       <h2>{title}</h2>
+      {subtitle && <p className="muted" style={{ textAlign: "center", marginTop: "-0.5rem" }}>{subtitle}</p>}
       {[1, 2, 3].map((age) => {
         const filtered = cards.filter((c) => !c.age || c.age === age);
         if (!filtered.length) return null;
@@ -695,7 +701,7 @@ function App() {
                   category={category}
                   selected={gameData[`${category}Cards`].some((c) => c.id === card.id)}
                   toggleCard={toggleCard}
-                  hint={card.points === "scaling" ? getPrompt(card.id).q : ""}
+                  hint={card.points === "scaling" ? getPrompt(card.id).q : card.note || ""}
                 />
               ))}
             </div>
@@ -893,7 +899,12 @@ function App() {
           "Sum of your conflict tokens: +1/+3/+5 per Age won, −1 per Age lost."
         );
       case "Commercial":
-        return renderCardSelection("commercial", CARDS.commercial, "Commercial Buildings (Yellow)");
+        return renderCardSelection(
+          "commercial",
+          CARDS.commercial,
+          "Commercial Buildings (Yellow)",
+          "Most yellow cards give coins or trade discounts — those are already counted via your total on the Coins step. Only Age III cards (Haven, Lighthouse, Chamber, Arena) score victory points and will prompt you."
+        );
       case "Guilds":
         return renderGuilds();
       case "Score":
