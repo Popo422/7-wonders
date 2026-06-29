@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "7-wonders",
+  "compatibility_date": "2026-06-29",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "7-wonders-calculator"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
